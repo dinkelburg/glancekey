@@ -1,0 +1,13 @@
+.build/
+build/
+FaceUnlock.xcodeproj/
+Mac/Info.plist
+iOS/Info.plist
+.DS_Store
+xcuserdata/
+relay/node_modules/
+relay/.wrangler/
+relay/worker-configuration.d.ts
+.swiftpm/
+test-evidence/
+linux/linux
