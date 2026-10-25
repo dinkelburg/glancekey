@@ -1,9 +1,9 @@
-# FaceUnlock
+# GlanceKey
 
 Unlock your Mac and your Linux machine with Face ID on your iPhone, from anywhere, on any network.
 
 ```
-iPhone ──HTTPS──▶ relay (faceunlock.dinkelworks.nl, Cloudflare) ◀──WebSocket── Mac app / Linux agent
+iPhone ──HTTPS──▶ relay (glancekey.dinkelworks.nl, Cloudflare) ◀──WebSocket── Mac app / Linux agent
 ```
 
 - **iPhone app** (`iOS/`): tap **Unlock**, or just open the app, or use Siri, Shortcuts or the Action button. Look at the phone and the computer unlocks.
@@ -36,7 +36,7 @@ iPhone ──HTTPS──▶ relay (faceunlock.dinkelworks.nl, Cloudflare) ◀─
 
 ### Mac
 1. Accept the Xcode license once: `sudo xcodebuild -license accept`
-2. Run `scripts/build-mac.sh`. Then, in the FaceUnlock menu bar item:
+2. Run `scripts/build-mac.sh`. Then, in the GlanceKey menu bar item:
    - Grant **Accessibility** access.
    - **Save** your login password.
 
@@ -50,18 +50,18 @@ With a free Apple developer account the app stops opening after 7 days. Re-run t
 ### Linux (Omarchy)
 ```sh
 scripts/build-linux.sh                                   # on the Mac
-scp build/linux/faceunlock-agent-amd64 omarchy:~/.local/bin/faceunlock-agent
+scp build/linux/glancekey-agent-amd64 omarchy:~/.local/bin/glancekey-agent
 
 # on the Linux machine:
-faceunlock-agent install-service   # systemd user service, starts with your session
-faceunlock-agent set-password      # needed for Omarchy's lock screen; verified, stored in the keyring
-faceunlock-agent pair              # shows the QR code to scan with the iPhone Camera
-faceunlock-agent status
+glancekey-agent install-service   # systemd user service, starts with your session
+glancekey-agent set-password      # needed for Omarchy's lock screen; verified, stored in the keyring
+glancekey-agent pair              # shows the QR code to scan with the iPhone Camera
+glancekey-agent status
 ```
-Logs: `journalctl --user -u faceunlock-agent -f`
+Logs: `journalctl --user -u glancekey-agent -f`
 
 ### Pairing
-On the Mac click **Pair iPhone…**; on Linux run `faceunlock-agent pair`. Then scan the QR code with the iPhone Camera app.
+On the Mac click **Pair iPhone…**; on Linux run `glancekey-agent pair`. Then scan the QR code with the iPhone Camera app.
 
 ## Approve sudo with your iPhone
 
@@ -69,20 +69,20 @@ Optional. `sudo` (and, on Linux, polkit's admin dialogs) first waits for your iP
 
 ```
 $ sudo pacman -Syu
-FaceUnlock: approve on your iPhone, or wait 30 s to type your password.
-FaceUnlock: approved on Ruben's iPhone.
+GlanceKey: approve on your iPhone, or wait 30 s to type your password.
+GlanceKey: approved on Ruben's iPhone.
 ```
 
-Open FaceUnlock (or tap the notification): it shows `sudo pacman -Syu` and approves it with Face ID. **Deny**, no answer within 30 s, or no connection: the normal password prompt follows. SSH sessions get the password prompt straight away.
+Open GlanceKey (or tap the notification): it shows `sudo pacman -Syu` and approves it with Face ID. **Deny**, no answer within 30 s, or no connection: the normal password prompt follows. SSH sessions get the password prompt straight away.
 
-Set it up after pairing, and again after pairing another iPhone or updating FaceUnlock:
-- **Linux:** `sudo faceunlock-agent enable-sudo`. It copies the agent to `/usr/local/libexec/faceunlock/`, saves your paired iPhones in `/etc/faceunlock/approvers.json` and adds one `pam_exec` line to `/etc/pam.d/sudo` and `/etc/pam.d/polkit-1`. polkit keeps its config in `/usr/lib/pam.d` on Arch and Debian, so it creates the `/etc/pam.d/polkit-1` override from that; run it again after polkit updates. Undo: `sudo faceunlock-agent disable-sudo`.
+Set it up after pairing, and again after pairing another iPhone or updating GlanceKey:
+- **Linux:** `sudo glancekey-agent enable-sudo`. It copies the agent to `/usr/local/libexec/glancekey/`, saves your paired iPhones in `/etc/glancekey/approvers.json` and adds one `pam_exec` line to `/etc/pam.d/sudo` and `/etc/pam.d/polkit-1`. polkit keeps its config in `/usr/lib/pam.d` on Arch and Debian, so it creates the `/etc/pam.d/polkit-1` override from that; run it again after polkit updates. Undo: `sudo glancekey-agent disable-sudo`.
 - **Mac:** `scripts/enable-mac-sudo.sh` (needs Go and the Xcode command line tools). It builds the checker and a small PAM module, tests the module with PAM, then adds it to `/etc/pam.d/sudo_local`, which survives macOS updates. Undo: `scripts/enable-mac-sudo.sh --disable`. If sudo ever stops working, this undoes it without sudo:
   `osascript -e 'do shell script "rm /etc/pam.d/sudo_local" with administrator privileges'`
 
-How it works: PAM runs the checker (`faceunlock-agent pam`) as root. It asks the FaceUnlock agent or Mac app to show the request on your iPhone, then verifies the iPhone's signature against `approvers.json`. Problems are logged to syslog under `faceunlock` (`journalctl -t faceunlock`).
+How it works: PAM runs the checker (`glancekey-agent pam`) as root. It asks the GlanceKey agent or Mac app to show the request on your iPhone, then verifies the iPhone's signature against `approvers.json`. Problems are logged to syslog under `glancekey` (`journalctl -t glancekey`).
 
-**Notifications:** in the iPhone app, turn on **Notify me with ntfy** and subscribe to the topic it shows in the free [ntfy app](https://apps.apple.com/app/ntfy/id1625396347). Computers then post "… is waiting for you" to it; tap it to open FaceUnlock. Only the computer's name goes through ntfy.
+**Notifications:** in the iPhone app, turn on **Notify me with ntfy** and subscribe to the topic it shows in the free [ntfy app](https://apps.apple.com/app/ntfy/id1625396347). Computers then post "… is waiting for you" to it; tap it to open GlanceKey. Only the computer's name goes through ntfy.
 
 On Linux this is mostly a convenience: the login password the agent keeps for Omarchy's lock screen is in the GNOME keyring, which any program running as you can read, and on Linux it's also your sudo password.
 
@@ -112,19 +112,19 @@ cd relay && npm test                    # relay forwarding tests (local Cloudfla
 cd relay && npx wrangler dev             # local relay on :8787; npx wrangler deploy to publish
 
 # End to end without a phone: off Linux the agent uses a pretend lock screen.
-(cd linux && go build -o /tmp/faceunlock-agent .)
-FACEUNLOCK_CONFIG_DIR=/tmp/fu /tmp/faceunlock-agent run &
-FACEUNLOCK_CONFIG_DIR=/tmp/fu /tmp/faceunlock-agent pair     # prints faceunlock://pair?d=…
-swift run --package-path Core fake-phone pair 'faceunlock://pair?d=…'
+(cd linux && go build -o /tmp/glancekey-agent .)
+GLANCEKEY_CONFIG_DIR=/tmp/fu /tmp/glancekey-agent run &
+GLANCEKEY_CONFIG_DIR=/tmp/fu /tmp/glancekey-agent pair     # prints glancekey://pair?d=…
+swift run --package-path Core fake-phone pair 'glancekey://pair?d=…'
 swift run --package-path Core fake-phone lock|unlock|status|test-replay|test-bad-signature
 swift run --package-path Core fake-phone hello                    # lock state and waiting approvals
 
 # Approvals without root: run the checker like PAM would, against that agent, and answer with fake-phone.
 echo '{"command":"approvers"}' | nc -U /tmp/fu/agent.sock   # save .approvers as approvers.json in a 0755 folder
-PAM_USER=$USER PAM_SERVICE=sudo /tmp/faceunlock-agent pam --approvers <dir>/approvers.json --socket /tmp/fu/agent.sock &
+PAM_USER=$USER PAM_SERVICE=sudo /tmp/glancekey-agent pam --approvers <dir>/approvers.json --socket /tmp/fu/agent.sock &
 swift run --package-path Core fake-phone approve --wait 10       # or deny, approve-tampered
 # The Mac PAM module the same way (build it as scripts/enable-mac-sudo.sh does):
-build/mac-sudo/pam-check --direct build/mac-sudo/pam_faceunlock.so.2 /tmp/faceunlock-agent --approvers … --socket …
+build/mac-sudo/pam-check --direct build/mac-sudo/pam_glancekey.so.2 /tmp/glancekey-agent --approvers … --socket …
 ```
 
-`project.yml` is the source of truth for the Xcode project (`xcodegen generate`). The Mac app's relay can be overridden with `defaults write nl.dinkelworks.faceunlock.mac relayURL http://localhost:8787`.
+`project.yml` is the source of truth for the Xcode project (`xcodegen generate`). The app's name is set in a few places listed in `Core/Sources/AppCore/Brand.swift`; `scripts/test.sh` checks they agree. The Mac app's relay can be overridden with `defaults write nl.dinkelworks.glancekey.mac relayURL http://localhost:8787`.

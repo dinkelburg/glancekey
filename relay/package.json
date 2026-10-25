@@ -1,5 +1,5 @@
 {
-  "name": "faceunlock-relay",
+  "name": "relay",
   "private": true,
   "type": "module",
   "scripts": {

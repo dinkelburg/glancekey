@@ -1,6 +1,6 @@
 .build/
 build/
-FaceUnlock.xcodeproj/
+*.xcodeproj/
 Mac/Info.plist
 iOS/Info.plist
 .DS_Store

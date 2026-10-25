@@ -14,9 +14,9 @@ import (
 	"time"
 )
 
-// detectScreen picks the lock screen backend. FACEUNLOCK_SCREEN=omarchy|hyprlock|logind|fake overrides it.
+// detectScreen picks the lock screen backend. <envPrefix>SCREEN=omarchy|hyprlock|logind|fake overrides it.
 func detectScreen() Screen {
-	switch os.Getenv("FACEUNLOCK_SCREEN") {
+	switch os.Getenv(envPrefix + "SCREEN") {
 	case "fake":
 		return &fakeScreen{}
 	case "omarchy":

@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "faceunlock-relay",
+  "name": "glancekey-relay",
   // DinkelWorks, the account that owns dinkelworks.nl.
   "account_id": "23f8ca529032473a25c2ea485fc5a7ab",
   "main": "src/index.ts",
@@ -9,6 +9,6 @@
     "bindings": [{ "name": "MACHINES", "class_name": "Machine" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Machine"] }],
-  "routes": [{ "pattern": "faceunlock.dinkelworks.nl", "custom_domain": true }],
+  "routes": [{ "pattern": "glancekey.dinkelworks.nl", "custom_domain": true }],
   "observability": { "enabled": true }
 }

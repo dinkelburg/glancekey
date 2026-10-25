@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct FaceUnlockApp: App {
+struct PhoneApp: App {
     @ObservedObject private var model = PhoneModel.shared
     @Environment(\.scenePhase) private var scenePhase
 

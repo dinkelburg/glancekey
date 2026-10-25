@@ -8,7 +8,7 @@ public enum ClientError: Error, LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .unreachable: "Can't reach the FaceUnlock relay. Check your internet connection."
+        case .unreachable: "Can't reach the \(Brand.name) relay. Check your internet connection."
         case .server(_, let message): message
         case .wrongMachine: "A different computer answered. Pair this iPhone again."
         case .invalidResponse: "Your computer sent an unexpected response."

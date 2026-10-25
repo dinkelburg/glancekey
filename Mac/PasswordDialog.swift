@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 import Security
 
-/// System password dialogs FaceUnlock fills in once the iPhone approves: LocalAuthentication's "… is trying to
+/// System password dialogs the app fills in once the iPhone approves: LocalAuthentication's "… is trying to
 /// unlock" (coreautha: 1Password, Safari passwords) and administrator dialogs (SecurityAgent: System Settings,
 /// installers, scripts). Only Apple-signed dialog processes count, and keystrokes go to the dialog's own process,
 /// never to the app in front.

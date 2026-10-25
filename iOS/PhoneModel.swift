@@ -1,4 +1,4 @@
-import FaceUnlockCore
+import AppCore
 import Foundation
 import LocalAuthentication
 import SwiftUI
@@ -31,7 +31,7 @@ enum OperationState: Equatable {
 
 /// What a computer answered when the app last asked, which needs no Face ID.
 struct MachineStatus: Equatable {
-    /// nil if the computer couldn't tell or runs an older FaceUnlock.
+    /// nil if the computer couldn't tell or runs an older version of the app.
     var locked: Bool?
     var approvals: [Approval] = []
     /// Why the computer couldn't be reached.
@@ -217,7 +217,7 @@ final class PhoneModel: ObservableObject {
             return await smartOpen() ?? OperationResult(success: true, message: waitingSummary)
         }
         guard let machine = machines.first(where: { $0.machineId == machineId }) ?? machines.first else {
-            return OperationResult(success: false, message: "Pair FaceUnlock with a computer first.")
+            return OperationResult(success: false, message: "Pair \(Brand.name) with a computer first.")
         }
         return await perform(action, on: machine)
     }
@@ -225,9 +225,9 @@ final class PhoneModel: ObservableObject {
     /// What's left after a smart open that didn't act, for Siri.
     private var waitingSummary: String {
         let waiting = waitingApprovals.count, locked = lockedMachines.count
-        if waiting > 0 { return "Open FaceUnlock to approve: \(waiting) request(s) waiting." }
+        if waiting > 0 { return "Open \(Brand.name) to approve: \(waiting) request(s) waiting." }
         if locked == 0 { return "Nothing is locked or waiting." }
-        return "Open FaceUnlock to choose: \(locked) computers are locked."
+        return "Open \(Brand.name) to choose: \(locked) computers are locked."
     }
 
     private func run(_ action: Action, on machine: PairedMachine) async -> OperationResult {
@@ -399,7 +399,7 @@ final class PhoneModel: ObservableObject {
             switch error.code {
             case .userCancel, .appCancel, .systemCancel: return "Cancelled"
             case .biometryNotEnrolled: return "Set up Face ID in Settings first."
-            case .biometryNotAvailable: return "Face ID isn't available. Allow it for FaceUnlock in Settings."
+            case .biometryNotAvailable: return "Face ID isn't available. Allow it for \(Brand.name) in Settings."
             case .biometryLockout: return "Face ID is locked. Unlock your iPhone with its passcode, then try again."
             case .authenticationFailed: return "Face ID didn't recognise you."
             default: return error.localizedDescription
@@ -413,7 +413,7 @@ final class PhoneModel: ObservableObject {
 
     func handle(url: URL) {
         autoUnlockTask?.cancel()
-        guard url.scheme == FaceUnlockProtocol.urlScheme else { return }
+        guard url.scheme == Brand.urlScheme else { return }
         if url.host == Notifications.openURL.host {
             // The notification of a waiting approval: do what's waiting, whatever the open setting.
             Task { await smartOpen() }
@@ -425,7 +425,7 @@ final class PhoneModel: ObservableObject {
     func pair(code: String) async {
         autoUnlockTask?.cancel()
         guard let invite = PairingInvite(string: code) else {
-            pairingResult = OperationResult(success: false, message: "That isn't a FaceUnlock pairing code. Update both apps if it should be.")
+            pairingResult = OperationResult(success: false, message: "That isn't a \(Brand.name) pairing code. Update both apps if it should be.")
             return
         }
         guard !isPairing else { return }

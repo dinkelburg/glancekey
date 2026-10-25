@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-// State is the agent's identity and paired iPhones, in ~/.config/faceunlock/agent.json (mode 0600).
+// State is the agent's identity and paired iPhones, in ~/.config/<appID>/agent.json (mode 0600).
 type State struct {
 	MachineID   string `json:"machineId"`
 	MachineName string `json:"machineName"`
@@ -19,14 +19,14 @@ type State struct {
 }
 
 func configDir() string {
-	if dir := os.Getenv("FACEUNLOCK_CONFIG_DIR"); dir != "" {
+	if dir := os.Getenv(envPrefix + "CONFIG_DIR"); dir != "" {
 		return dir
 	}
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "faceunlock")
+		return filepath.Join(dir, appID)
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "faceunlock")
+	return filepath.Join(home, ".config", appID)
 }
 
 func statePath() string {
@@ -51,9 +51,9 @@ func loadState() (*State, error) {
 	return &state, nil
 }
 
-// relayURL lets FACEUNLOCK_RELAY point a test run at a local relay without touching the saved state.
+// relayURL lets <envPrefix>RELAY point a test run at a local relay without touching the saved state.
 func (s *State) relayURL() string {
-	if relay := os.Getenv("FACEUNLOCK_RELAY"); relay != "" {
+	if relay := os.Getenv(envPrefix + "RELAY"); relay != "" {
 		return relay
 	}
 	return s.Relay

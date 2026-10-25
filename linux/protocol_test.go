@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Produced by CryptoKit; the same vectors are in Core/Tests/FaceUnlockCoreTests, so Swift and Go agree on the wire format.
+// Produced by CryptoKit; the same vectors are in Core/Tests/AppCoreTests, so Swift and Go agree on the wire format.
 const (
 	vectorPublicKey = "BAgPR2YEAVXtH4FV5lz7GfgmXFGdGeSUbwNl/aQuMfhqUZBYED2VyexlxQ8BJj+derxoiayhgiX9Brpn8PSdlSo="
 	vectorSignature = "/ZB+omIwMIBk3ZC8I6bqsnPVnoLG4nVQpBIHfBaibW/1X5xhPvSPrcEjDHbILAeiXRVhgVH5BHcirEgxlQqo2A=="
@@ -47,10 +47,10 @@ func TestCryptoKitApprovalSignatureVerifies(t *testing.T) {
 
 func TestValidTopic(t *testing.T) {
 	for topic, want := range map[string]bool{
-		"faceunlock-AbC_123-xyz": true,
-		"short":                  false,
-		"faceunlock-abc/../x":    false,
-		"faceunlock-abcdefghij?": false,
+		appID + "-AbC_123-xyz": true,
+		"short":                false,
+		appID + "-abc/../x":    false,
+		appID + "-abcdefghij?": false,
 	} {
 		if validTopic(topic) != want {
 			t.Errorf("validTopic(%q) != %v", topic, want)
@@ -70,10 +70,10 @@ func TestCryptoKitPairingProofMatches(t *testing.T) {
 func TestInviteURL(t *testing.T) {
 	invite := PairingInvite{V: protocolVersion, MachineID: "m", MachineName: "omarchy", Platform: "linux", Relay: defaultRelay, Token: "t"}
 	url := invite.URL()
-	if !strings.HasPrefix(url, "faceunlock://pair?d=") {
+	if !strings.HasPrefix(url, urlScheme+"://pair?d=") {
 		t.Fatalf("unexpected URL %s", url)
 	}
-	data, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(url, "faceunlock://pair?d="))
+	data, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(url, urlScheme+"://pair?d="))
 	if err != nil {
 		t.Fatal(err)
 	}

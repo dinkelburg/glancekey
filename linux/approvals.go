@@ -231,7 +231,7 @@ func (a *Agent) answerApproval(req CommandRequest) (any, error) {
 	return CommandResponse{OK: true, Message: "Approved"}, nil
 }
 
-// notifyPhones posts to the paired iPhones' ntfy topics. Tapping the notification opens FaceUnlock.
+// notifyPhones posts to the paired iPhones' ntfy topics. Tapping the notification opens the app.
 func (a *Agent) notifyPhones() {
 	a.mu.Lock()
 	machineName := a.state.MachineName
@@ -250,14 +250,14 @@ func (a *Agent) notifyPhones() {
 }
 
 func postNotification(topic, machineName string) error {
-	server := os.Getenv("FACEUNLOCK_NTFY")
+	server := os.Getenv(envPrefix + "NTFY")
 	if server == "" {
 		server = ntfyServer
 	}
 	body, _ := json.Marshal(map[string]any{
 		"topic":    topic,
 		"title":    machineName + " is waiting for you",
-		"message":  "Tap to approve or deny with FaceUnlock.",
+		"message":  "Tap to approve or deny with " + appName + ".",
 		"click":    notifyOpenURL,
 		"priority": 4,
 		"tags":     []string{"closed_lock_with_key"},

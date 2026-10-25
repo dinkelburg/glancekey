@@ -5,11 +5,13 @@ import Security
 // Wire protocol shared by the iPhone app, the Mac app, `fake-phone` and the Linux agent (linux/protocol.go).
 // The iPhone POSTs JSON to <relay>/v1/m/<machineId>/{pair,hello,command}; the relay forwards it over the
 // computer's outgoing WebSocket as a `RelayRequest` and returns the computer's `RelayResponse`.
+//
+// The "faceunlock…/v1" prefixes of signed messages and the pairing proof come from the app's first name. They're
+// fixed protocol constants, not the app's name (that's `Brand`): changing them would break every pairing and the
+// test vectors shared with linux/protocol_test.go.
 
-public enum FaceUnlockProtocol {
+public enum WireProtocol {
     public static let version = 2
-    public static let defaultRelay = URL(string: "https://faceunlock.dinkelworks.nl")!
-    public static let urlScheme = "faceunlock"
     /// How long a challenge from `hello` can be used.
     public static let nonceLifetime: TimeInterval = 60
     /// How long the pairing QR code stays valid.
@@ -34,7 +36,7 @@ public struct PairingInvite: Codable, Equatable, Sendable {
     public var token: String
 
     public init(machineId: String, machineName: String, platform: String, relay: URL, token: String) {
-        self.v = FaceUnlockProtocol.version
+        self.v = WireProtocol.version
         self.machineId = machineId
         self.machineName = machineName
         self.platform = platform
@@ -42,10 +44,10 @@ public struct PairingInvite: Codable, Equatable, Sendable {
         self.token = token
     }
 
-    /// `faceunlock://pair?d=<base64url JSON>`, which the iPhone Camera app opens straight in FaceUnlock.
+    /// `<Brand.urlScheme>://pair?d=<base64url JSON>`, which the iPhone Camera app opens straight in the app.
     public var url: URL {
         var components = URLComponents()
-        components.scheme = FaceUnlockProtocol.urlScheme
+        components.scheme = Brand.urlScheme
         components.host = "pair"
         let json = (try? JSONEncoder().encode(self)) ?? Data()
         components.queryItems = [URLQueryItem(name: "d", value: json.base64URLEncodedString())]
@@ -55,13 +57,13 @@ public struct PairingInvite: Codable, Equatable, Sendable {
     /// Accepts the pairing URL or just the code that follows `d=`.
     public init?(string: String) {
         var code = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let components = URLComponents(string: code), components.scheme == FaceUnlockProtocol.urlScheme {
+        if let components = URLComponents(string: code), components.scheme == Brand.urlScheme {
             guard let value = components.queryItems?.first(where: { $0.name == "d" })?.value else { return nil }
             code = value
         }
         guard let data = Data(base64URLEncoded: code),
               let invite = try? JSONDecoder().decode(PairingInvite.self, from: data),
-              invite.v == FaceUnlockProtocol.version
+              invite.v == WireProtocol.version
         else { return nil }
         self = invite
     }
@@ -154,7 +156,7 @@ public struct HelloResponse: Codable, Sendable {
 
 /// A password prompt on the computer (`sudo`, a polkit dialog) that waits for you to approve it on the iPhone.
 /// The computer's root-owned checker creates it and checks the signature itself, so neither the relay nor
-/// the FaceUnlock app or agent in between can approve anything on its own.
+/// the Mac app or Linux agent in between can approve anything on its own.
 public struct Approval: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     /// What it's for, e.g. "sudo pacman -Syu".
@@ -254,10 +256,10 @@ public enum ApprovalMessage {
 public enum Notifications {
     public static let server = URL(string: "https://ntfy.sh")!
     /// Tapping the notification opens this, which shows what's waiting.
-    public static let openURL = URL(string: "faceunlock://approve")!
+    public static let openURL = URL(string: "\(Brand.urlScheme)://approve")!
 
     public static func newTopic() -> String {
-        "faceunlock-" + randomToken(byteCount: 15)
+        Brand.id + "-" + randomToken(byteCount: 15)
     }
 
     /// Topics are only letters, digits, - and _, so a topic can't point the computer anywhere but ntfy.

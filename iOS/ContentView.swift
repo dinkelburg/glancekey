@@ -1,4 +1,4 @@
-import FaceUnlockCore
+import AppCore
 import SwiftUI
 
 struct ContentView: View {
@@ -14,7 +14,7 @@ struct ContentView: View {
                     machineList
                 }
             }
-            .navigationTitle("FaceUnlock")
+            .navigationTitle(Brand.name)
             .sheet(isPresented: $showingAddComputer) {
                 NavigationStack {
                     ScrollView { PairingView().padding() }
@@ -66,10 +66,10 @@ struct ContentView: View {
                 }
             }
             Section {
-                Toggle("Unlock when FaceUnlock opens", isOn: $model.autoUnlockOnOpen)
+                Toggle("Unlock when \(Brand.name) opens", isOn: $model.autoUnlockOnOpen)
                 Button("Add another computer") { showingAddComputer = true }
             } footer: {
-                Text("Opening FaceUnlock unlocks the one locked computer; with more, tap the one you want. Requests like sudo always wait for you to tap Approve. Tip: add “Unlock Computer” to the Action button, Control Center or your Home Screen in Shortcuts.")
+                Text("Opening \(Brand.name) unlocks the one locked computer; with more, tap the one you want. Requests like sudo always wait for you to tap Approve. Tip: add “Unlock Computer” to the Action button, Control Center or your Home Screen in Shortcuts.")
             }
             NotificationsSection()
         }
@@ -166,7 +166,7 @@ private struct NotificationsSection: View {
             Text("Notifications")
         } footer: {
             Text(model.notificationsEnabled
-                 ? "In ntfy, tap +, paste this topic and subscribe (server ntfy.sh). When a computer waits for your approval, ntfy notifies you; tap the notification to open FaceUnlock. It only names the computer, not the command."
+                 ? "In ntfy, tap +, paste this topic and subscribe (server ntfy.sh). When a computer waits for your approval, ntfy notifies you; tap the notification to open \(Brand.name). It only names the computer, not the command."
                  : "Get a notification when a computer waits for your approval, for example for sudo. Uses the free ntfy app.")
         }
     }
@@ -283,14 +283,14 @@ struct PairingView: View {
                 .frame(maxWidth: .infinity)
 
             VStack(alignment: .leading, spacing: 12) {
-                Step(number: 1, text: "On your Mac, click the FaceUnlock menu bar icon, then **Pair iPhone…** On Linux, run **faceunlock-agent pair**.")
-                Step(number: 2, text: "Scan the QR code with the iPhone **Camera** app and tap the FaceUnlock link.")
+                Step(number: 1, text: "On your Mac, click the \(Brand.name) menu bar icon, then **Pair iPhone…** On Linux, run **\(Brand.id)-agent pair**.")
+                Step(number: 2, text: "Scan the QR code with the iPhone **Camera** app and tap the \(Brand.name) link.")
             }
 
             Divider()
 
             Text("Or paste the pairing code").font(.subheadline.weight(.semibold))
-            TextField("faceunlock://pair?d=…", text: $code, axis: .vertical)
+            TextField("\(Brand.urlScheme)://pair?d=…", text: $code, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)

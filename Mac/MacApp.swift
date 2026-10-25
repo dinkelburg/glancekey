@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct FaceUnlockMacApp: App {
+struct MacApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @ObservedObject private var model = AppModel.shared
 

@@ -1,11 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
 
-// FaceUnlock relay. Computers (the Mac app, the Linux agent) keep a WebSocket open to
+// The relay. Computers (the Mac app, the Linux agent) keep a WebSocket open to
 // /v1/agent/<machineId>; the iPhone POSTs to /v1/m/<machineId>/{pair,hello,command}. One Durable Object per
 // machine passes each request down that WebSocket and returns the answer.
 //
 // The relay is not trusted: every command is signed by the iPhone's Secure Enclave key and checked on the
 // computer, and pairing proves knowledge of the QR code without sending it. The relay only routes.
+
+// The app's name, as in Core/Sources/AppCore/Brand.swift, which explains how to rename the app. The relay's
+// own name and address are in wrangler.jsonc.
+const APP_NAME = "GlanceKey";
 
 export interface Env {
   MACHINES: DurableObjectNamespace<Machine>;
@@ -24,7 +28,7 @@ const ANSWER_TIMEOUT_MS = 25_000;
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/") return new Response("FaceUnlock relay\n");
+    if (url.pathname === "/") return new Response(`${APP_NAME} relay\n`);
 
     const agent = url.pathname.match(/^\/v1\/agent\/([^/]+)$/);
     const phone = url.pathname.match(/^\/v1\/m\/([^/]+)\/(pair|hello|command)$/);
@@ -86,7 +90,7 @@ export class Machine extends DurableObject<Env> {
 
     const agent = this.currentAgent();
     if (!agent) {
-      return json(503, { error: "Your computer isn't connected to FaceUnlock right now. It may be asleep, offline or not running the app." });
+      return json(503, { error: `Your computer isn't connected to ${APP_NAME} right now. It may be asleep, offline or not running the app.` });
     }
 
     const id = crypto.randomUUID();

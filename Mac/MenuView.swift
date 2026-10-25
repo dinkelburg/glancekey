@@ -1,5 +1,5 @@
 import CoreImage.CIFilterBuiltins
-import FaceUnlockCore
+import AppCore
 import SwiftUI
 
 struct MenuView: View {
@@ -12,7 +12,7 @@ struct MenuView: View {
                     .font(.title2)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("FaceUnlock").font(.headline)
+                    Text(Brand.name).font(.headline)
                     Text(statusText)
                         .font(.caption)
                         .foregroundStyle(model.relayState == .connected ? Color.secondary : Color.orange)
@@ -37,7 +37,7 @@ struct MenuView: View {
             Divider()
             HStack {
                 Spacer()
-                Button("Quit FaceUnlock") { NSApp.terminate(nil) }
+                Button("Quit \(Brand.name)") { NSApp.terminate(nil) }
             }
         }
         .padding(16)
@@ -88,7 +88,7 @@ private struct SetupSection: View {
             StatusRow(
                 ok: model.hasEventAccess,
                 title: "Accessibility access",
-                detail: model.hasEventAccess ? "Lets FaceUnlock type on the lock screen and into password dialogs." : "Needed to type your password on the lock screen and into password dialogs."
+                detail: model.hasEventAccess ? "Lets \(Brand.name) type on the lock screen and into password dialogs." : "Needed to type your password on the lock screen and into password dialogs."
             ) {
                 if !model.hasEventAccess {
                     Button("Grant…") { ScreenController.requestEventAccess() }
@@ -98,7 +98,7 @@ private struct SetupSection: View {
             StatusRow(
                 ok: model.hasPassword,
                 title: "Mac password",
-                detail: model.hasPassword ? "Saved in your keychain. It never leaves this Mac." : "FaceUnlock types it on the lock screen when your iPhone approves."
+                detail: model.hasPassword ? "Saved in your keychain. It never leaves this Mac." : "\(Brand.name) types it on the lock screen when your iPhone approves."
             ) {
                 if model.hasPassword && !isChanging {
                     Button("Change…") { isChanging = true }
@@ -203,7 +203,7 @@ private struct PairingSection: View {
                     .resizable()
                     .frame(width: 210, height: 210)
             }
-            Text("Install FaceUnlock on your iPhone first. Scanning the code opens it and pairs.")
+            Text("Install \(Brand.name) on your iPhone first. Scanning the code opens it and pairs.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -239,7 +239,7 @@ private struct OptionsSection: View {
                 .foregroundStyle(.secondary)
             Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
             Toggle("Fill in password dialogs from iPhone", isOn: $model.fillsPasswordDialogs)
-            Text("When a dialog asks for your Mac password (1Password, System Settings), approve it on your iPhone and FaceUnlock types the password.")
+            Text("When a dialog asks for your Mac password (1Password, System Settings), approve it on your iPhone and \(Brand.name) types the password.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

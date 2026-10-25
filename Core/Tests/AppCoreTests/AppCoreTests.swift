@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import Testing
-@testable import FaceUnlockCore
+@testable import AppCore
 
 final class Clock: @unchecked Sendable {
     var now = Date(timeIntervalSince1970: 1_000_000)
@@ -18,7 +18,7 @@ struct AuthenticatorTests {
     }
 
     func pairRequest(token: String, key: P256.Signing.PrivateKey? = nil) -> PairRequest {
-        let invite = PairingInvite(machineId: "machine-1", machineName: "Mac", platform: "macOS", relay: FaceUnlockProtocol.defaultRelay, token: token)
+        let invite = PairingInvite(machineId: "machine-1", machineName: "Mac", platform: "macOS", relay: Brand.relay, token: token)
         return PairRequest(invite: invite, deviceId: "phone-1", deviceName: "iPhone", publicKey: (key ?? phoneKey).publicKey.x963Representation)
     }
 
@@ -46,7 +46,7 @@ struct AuthenticatorTests {
 
     @Test func pairingTokenExpires() {
         let token = authenticator.startPairing()
-        clock.now += FaceUnlockProtocol.pairingLifetime + 1
+        clock.now += WireProtocol.pairingLifetime + 1
         #expect(throws: AuthError.pairingExpired) {
             try authenticator.completePairing(pairRequest(token: token))
         }
@@ -83,7 +83,7 @@ struct AuthenticatorTests {
     @Test func expiredNonceRejected() throws {
         let device = try pair()
         let nonce = authenticator.issueNonce(for: device.id)
-        clock.now += FaceUnlockProtocol.nonceLifetime + 1
+        clock.now += WireProtocol.nonceLifetime + 1
         #expect(throws: AuthError.expiredNonce) { try authenticator.verify(signedCommand(.unlock, nonce: nonce), devices: [device]) }
     }
 
@@ -118,11 +118,11 @@ struct AuthenticatorTests {
 struct ProtocolTests {
     @Test func inviteRoundTripsThroughURLAndBareCode() throws {
         let invite = PairingInvite(machineId: "m", machineName: "Ruben’s MacBook Pro", platform: "macOS",
-                                   relay: FaceUnlockProtocol.defaultRelay, token: randomToken())
+                                   relay: Brand.relay, token: randomToken())
         #expect(PairingInvite(string: invite.url.absoluteString) == invite)
         let code = try #require(URLComponents(url: invite.url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value)
         #expect(PairingInvite(string: "  \(code)\n") == invite)
-        #expect(PairingInvite(string: "faceunlock://pair?d=garbage") == nil)
+        #expect(PairingInvite(string: "\(Brand.urlScheme)://pair?d=garbage") == nil)
     }
 
     // The same vectors are checked by the Go agent (linux/protocol_test.go), so both sides agree on the wire format.
@@ -159,8 +159,8 @@ struct ProtocolTests {
         let topic = Notifications.newTopic()
         #expect(Notifications.isValidTopic(topic))
         #expect(!Notifications.isValidTopic("short"))
-        #expect(!Notifications.isValidTopic("faceunlock-abc/../../admin"))
-        #expect(!Notifications.isValidTopic("faceunlock-abcdefghij?x=1"))
+        #expect(!Notifications.isValidTopic("\(Brand.id)-abc/../../admin"))
+        #expect(!Notifications.isValidTopic("\(Brand.id)-abcdefghij?x=1"))
     }
 }
 

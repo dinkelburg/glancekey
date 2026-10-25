@@ -1,5 +1,5 @@
 import AppKit
-import FaceUnlockCore
+import AppCore
 import IOKit.ps
 import IOKit.pwr_mgt
 import Network
@@ -22,7 +22,7 @@ final class AppModel: ObservableObject {
         let message: String
     }
 
-    /// Whether sudo waits for the iPhone (scripts/enable-mac-sudo.sh), from /etc/faceunlock/approvers.json.
+    /// Whether sudo waits for the iPhone (scripts/enable-mac-sudo.sh), from `Approvers.path`.
     enum SudoApprovals: Equatable {
         case off
         case on
@@ -35,14 +35,14 @@ final class AppModel: ObservableObject {
         static let devices = "pairedDevices"
         static let keepAwake = "keepAwakeOnPower"
         static let didSetUpLoginItem = "didSetUpLoginItem"
-        /// Override with `defaults write nl.dinkelworks.faceunlock.mac relayURL http://localhost:8787` for testing.
+        /// Override with `defaults write nl.dinkelworks.<Brand.id>.mac relayURL http://localhost:8787` for testing.
         static let relayURL = "relayURL"
         /// Where to post ntfy notifications; https://ntfy.sh unless overridden for testing.
         static let ntfyURL = "ntfyURL"
         static let fillsPasswordDialogs = "fillsPasswordDialogs"
     }
 
-    private static let agentSecretService = "nl.dinkelworks.faceunlock.agent-secret"
+    private static let agentSecretService = Brand.keychainService("agent-secret")
 
     let machineId: String
     let machineName = (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? Host.current().localizedName ?? "Mac"
@@ -91,7 +91,7 @@ final class AppModel: ObservableObject {
             machineId = UUID().uuidString
             defaults.set(machineId, forKey: Defaults.machineId)
         }
-        relay = defaults.string(forKey: Defaults.relayURL).flatMap(URL.init(string:)) ?? FaceUnlockProtocol.defaultRelay
+        relay = defaults.string(forKey: Defaults.relayURL).flatMap(URL.init(string:)) ?? Brand.relay
         devices = defaults.data(forKey: Defaults.devices).flatMap { try? JSONDecoder().decode([PairedDevice].self, from: $0) } ?? []
         keepAwakeOnPower = defaults.object(forKey: Defaults.keepAwake) as? Bool ?? true
         fillsPasswordDialogs = defaults.object(forKey: Defaults.fillsPasswordDialogs) as? Bool ?? true
@@ -140,7 +140,7 @@ final class AppModel: ObservableObject {
     private func agentSecret() -> String {
         if let secret = Keychain.load(Self.agentSecretService) { return secret }
         let secret = randomToken()
-        try? Keychain.save(secret, service: Self.agentSecretService, label: "FaceUnlock: relay secret")
+        try? Keychain.save(secret, service: Self.agentSecretService, label: "\(Brand.name): relay secret")
         return secret
     }
 
@@ -158,7 +158,7 @@ final class AppModel: ObservableObject {
     }
 
     private static func readSudoApprovals(devices: [PairedDevice]) -> SudoApprovals {
-        guard let data = FileManager.default.contents(atPath: "/etc/faceunlock/approvers.json"),
+        guard let data = FileManager.default.contents(atPath: Approvers.path),
               let approvers = try? JSONDecoder().decode(Approvers.self, from: data)
         else { return .off }
         if let missing = devices.first(where: { device in !approvers.devices.contains { $0.id == device.id } }) {
@@ -322,13 +322,13 @@ final class AppModel: ObservableObject {
             return CommandResponse(ok: true, locked: false, message: "Already unlocked")
         }
         guard ScreenController.hasEventAccess else {
-            throw RequestError(status: 409, message: "FaceUnlock on your Mac needs Accessibility permission.")
+            throw RequestError(status: 409, message: "\(Brand.name) on your Mac needs Accessibility permission.")
         }
         guard let password = PasswordStore.load() else {
-            throw RequestError(status: 409, message: "Save your Mac password in FaceUnlock on the Mac first.")
+            throw RequestError(status: 409, message: "Save your Mac password in \(Brand.name) on the Mac first.")
         }
         if await PasswordStore.check(password) == .wrong {
-            throw RequestError(status: 409, message: "The password saved in FaceUnlock is out of date. Update it on your Mac.")
+            throw RequestError(status: 409, message: "The password saved in \(Brand.name) is out of date. Update it on your Mac.")
         }
         let unlocked = await ScreenController.unlock(password: password)
         return CommandResponse(ok: unlocked, locked: !unlocked, message: unlocked ? "Unlocked" : "Typed the password, but the Mac is still locked")
@@ -336,9 +336,9 @@ final class AppModel: ObservableObject {
 
     // MARK: - Approvals for sudo
 
-    /// sudo runs the root-owned checker (linux/checker.go) through pam_faceunlock (Mac/PAM). The checker asks
+    /// sudo runs the root-owned checker (linux/checker.go) through the PAM module (Mac/PAM). The checker asks
     /// here over the control socket; the request shows up in the iPhone's hello and the iPhone's answer goes back
-    /// to the checker, which verifies the signature itself against /etc/faceunlock/approvers.json. This app only
+    /// to the checker, which verifies the signature itself against approvers.json. This app only
     /// passes messages along, so it can't approve anything on its own.
     private final class PendingApproval {
         enum Event {
@@ -533,10 +533,10 @@ final class AppModel: ObservableObject {
             askedDialog = PasswordDialog.find()?.window
         }
         guard let password = PasswordStore.load() else {
-            throw RequestError(status: 409, message: "Save your Mac password in FaceUnlock on the Mac first.")
+            throw RequestError(status: 409, message: "Save your Mac password in \(Brand.name) on the Mac first.")
         }
         if await PasswordStore.check(password) == .wrong {
-            throw RequestError(status: 409, message: "The password saved in FaceUnlock is out of date. Update it on your Mac.")
+            throw RequestError(status: 409, message: "The password saved in \(Brand.name) is out of date. Update it on your Mac.")
         }
         markUsed(device.id)
         switch await PasswordDialog.fill(dialog.dialog, password: password) {
@@ -544,13 +544,13 @@ final class AppModel: ObservableObject {
             note("\(device.name) approved: \(dialog.approval.title)")
             return respond(CommandResponse(ok: true, locked: false, message: "Approved. Filled in your password."))
         case .closed:
-            throw RequestError(status: 409, message: "The dialog closed before FaceUnlock could fill it in.")
+            throw RequestError(status: 409, message: "The dialog closed before \(Brand.name) could fill it in.")
         case .failed(let reason):
             throw RequestError(status: 409, message: reason)
         }
     }
 
-    /// Posts to the paired iPhones' ntfy topics; tapping the notification opens FaceUnlock.
+    /// Posts to the paired iPhones' ntfy topics; tapping the notification opens the app.
     private func notifyPhones() {
         let server = UserDefaults.standard.string(forKey: Defaults.ntfyURL).flatMap(URL.init(string:)) ?? Notifications.server
         for topic in Set(devices.compactMap(\.notifyTopic).filter(Notifications.isValidTopic)) {
@@ -560,7 +560,7 @@ final class AppModel: ObservableObject {
             request.httpBody = try? JSONSerialization.data(withJSONObject: [
                 "topic": topic,
                 "title": "\(machineName) is waiting for you",
-                "message": "Tap to approve or deny with FaceUnlock.",
+                "message": "Tap to approve or deny with \(Brand.name).",
                 "click": Notifications.openURL.absoluteString,
                 "priority": 4,
                 "tags": ["closed_lock_with_key"],
@@ -602,7 +602,7 @@ final class AppModel: ObservableObject {
         let wanted = keepAwakeOnPower && Self.isOnPowerAdapter
         if wanted, sleepAssertion == nil {
             var assertion: IOPMAssertionID = 0
-            let reason = "FaceUnlock keeps this Mac reachable so your iPhone can unlock it" as CFString
+            let reason = "\(Brand.name) keeps this Mac reachable so your iPhone can unlock it" as CFString
             if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
                                            IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &assertion) == kIOReturnSuccess {
                 sleepAssertion = assertion

@@ -14,11 +14,12 @@ import (
 	"time"
 )
 
-// Wire protocol, mirroring Core/Sources/FaceUnlockCore/Protocol.swift.
+// Wire protocol, mirroring Core/Sources/AppCore/Protocol.swift. The "faceunlock…/v1" prefixes of signed messages
+// and the pairing proof are fixed protocol constants from the app's first name, not the app's name (brand.go):
+// changing them would break every pairing and the vectors shared with the Swift tests.
 
 const (
 	protocolVersion = 2
-	defaultRelay    = "https://faceunlock.dinkelworks.nl"
 	nonceLifetime   = 60 * time.Second
 	pairingLifetime = 5 * time.Minute
 )
@@ -45,10 +46,10 @@ type PairingInvite struct {
 	Token       string `json:"token"`
 }
 
-// URL opens straight in the FaceUnlock iPhone app when scanned with the Camera app.
+// URL opens straight in the iPhone app when scanned with the Camera app.
 func (i PairingInvite) URL() string {
 	data, _ := json.Marshal(i)
-	return "faceunlock://pair?d=" + base64.RawURLEncoding.EncodeToString(data)
+	return urlScheme + "://pair?d=" + base64.RawURLEncoding.EncodeToString(data)
 }
 
 type PairRequest struct {
@@ -134,7 +135,7 @@ func approvalMessage(machineID, deviceID string, approval Approval) []byte {
 // shows what's posted there. Only the computer's name goes to ntfy; the details travel over the relay.
 const (
 	ntfyServer    = "https://ntfy.sh"
-	notifyOpenURL = "faceunlock://approve"
+	notifyOpenURL = urlScheme + "://approve"
 )
 
 // validTopic allows only letters, digits, - and _, so a topic can't point the computer anywhere but ntfy.

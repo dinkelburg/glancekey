@@ -1,3 +1,4 @@
+import AppCore
 import AppKit
 import ApplicationServices
 import CoreGraphics
@@ -35,7 +36,7 @@ enum ScreenController {
 
     static func wakeDisplay() {
         var assertion: IOPMAssertionID = 0
-        guard IOPMAssertionDeclareUserActivity("FaceUnlock" as CFString, kIOPMUserActiveLocal, &assertion) == kIOReturnSuccess else { return }
+        guard IOPMAssertionDeclareUserActivity(Brand.name as CFString, kIOPMUserActiveLocal, &assertion) == kIOReturnSuccess else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { IOPMAssertionRelease(assertion) }
     }
 

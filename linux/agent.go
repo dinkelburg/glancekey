@@ -221,12 +221,12 @@ func (a *Agent) unlock() (CommandResponse, error) {
 	if a.screen.NeedsPassword() {
 		password, err = a.passwords.Load()
 		if errors.Is(err, errNoPassword) {
-			return CommandResponse{}, requestError{409, fmt.Sprintf("No password saved on %s. Run `faceunlock-agent set-password` there.", a.machineName())}
+			return CommandResponse{}, requestError{409, fmt.Sprintf("No password saved on %s. Run `%s set-password` there.", a.machineName(), agentCommand)}
 		} else if err != nil {
 			return CommandResponse{}, requestError{409, "Couldn't read the saved password: " + err.Error()}
 		}
 		if a.passwords.Check(password) == checkWrong {
-			return CommandResponse{}, requestError{409, "The saved password is out of date. Run `faceunlock-agent set-password` again."}
+			return CommandResponse{}, requestError{409, "The saved password is out of date. Run `" + agentCommand + " set-password` again."}
 		}
 	}
 

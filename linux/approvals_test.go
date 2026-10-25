@@ -39,7 +39,7 @@ func newApprovalSetup(t *testing.T) *approvalSetup {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	t.Setenv("FACEUNLOCK_CONFIG_DIR", dir)
+	t.Setenv(envPrefix+"CONFIG_DIR", dir)
 	state, err := loadState()
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +280,7 @@ func TestHelloReportsLockAndSavesTopic(t *testing.T) {
 	phone.pair(token)
 	screen.Lock()
 
-	topic := "faceunlock-abcdefghij123"
+	topic := appID + "-abcdefghij123"
 	_, body := phone.call("/v1/hello", HelloRequest{DeviceID: phone.deviceID, NotifyTopic: &topic})
 	if body["locked"] != true {
 		t.Fatalf("hello: %v", body)
@@ -309,12 +309,12 @@ func TestNotificationPost(t *testing.T) {
 		received <- body
 	}))
 	defer server.Close()
-	t.Setenv("FACEUNLOCK_NTFY", server.URL)
-	if err := postNotification("faceunlock-abcdefghij123", "Ruben’s MacBook"); err != nil {
+	t.Setenv(envPrefix+"NTFY", server.URL)
+	if err := postNotification(appID+"-abcdefghij123", "Ruben’s MacBook"); err != nil {
 		t.Fatal(err)
 	}
 	body := <-received
-	if body["topic"] != "faceunlock-abcdefghij123" || body["click"] != notifyOpenURL || !strings.Contains(body["title"].(string), "Ruben’s MacBook") {
+	if body["topic"] != appID+"-abcdefghij123" || body["click"] != notifyOpenURL || !strings.Contains(body["title"].(string), "Ruben’s MacBook") {
 		t.Fatalf("unexpected notification %v", body)
 	}
 }
@@ -439,8 +439,8 @@ func TestVendorPAMOverride(t *testing.T) {
 		!strings.Contains(string(override), line+"\nauth       include      system-auth") {
 		t.Fatalf("override:\n%s", override)
 	}
-	if _, err := os.Stat(filepath.Join(etc, "polkit-1.before-faceunlock")); err == nil {
-		t.Fatal("backed up a file FaceUnlock created")
+	if _, err := os.Stat(filepath.Join(etc, "polkit-1.before-"+appID)); err == nil {
+		t.Fatal("backed up a file it created")
 	}
 
 	files := []string{filepath.Join(etc, "sudo"), filepath.Join(etc, "polkit-1")}
@@ -481,12 +481,12 @@ func TestParentOf(t *testing.T) {
 
 // TestCheckerExitsWithParent: when sudo is killed, the checker must stop too, so the request disappears.
 func TestCheckerExitsWithParent(t *testing.T) {
-	if os.Getenv("FACEUNLOCK_TEST_ORPHAN") == "1" {
+	if os.Getenv(envPrefix+"TEST_ORPHAN") == "1" {
 		exitWithParent(os.Getppid(), nil)
 		return
 	}
 	shell := exec.Command("sh", "-c", `"$0" -test.run='^TestCheckerExitsWithParent$' & echo $!; wait`, os.Args[0])
-	shell.Env = append(os.Environ(), "FACEUNLOCK_TEST_ORPHAN=1")
+	shell.Env = append(os.Environ(), envPrefix+"TEST_ORPHAN=1")
 	out, _ := shell.StdoutPipe()
 	if err := shell.Start(); err != nil {
 		t.Fatal(err)

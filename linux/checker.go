@@ -20,15 +20,15 @@ import (
 	"unicode/utf8"
 )
 
-// `faceunlock-agent pam` is the checker that sudo and polkit run through PAM, as root: pam_exec on Linux,
-// pam_faceunlock.so on the Mac (Mac/PAM). It asks your FaceUnlock agent (or the Mac app) to show the request
+// `<agent> pam` is the checker that sudo and polkit run through PAM, as root: pam_exec on Linux, the PAM
+// module in Mac/PAM on the Mac. It asks your agent (or the Mac app) to show the request
 // on your iPhone, then checks the iPhone's signature itself against approvers.json, which only root can change.
 // The agent and the relay only carry messages, so neither can approve anything. Exit status 0 lets PAM skip the
 // password; anything else falls through to the normal password prompt.
 
 const (
-	approversPath       = "/etc/faceunlock/approvers.json"
-	checkerInstallPath  = "/usr/local/libexec/faceunlock/faceunlock-agent"
+	approversPath       = "/etc/" + appID + "/approvers.json"
+	checkerInstallPath  = "/usr/local/libexec/" + appID + "/" + agentCommand
 	defaultApprovalWait = 30 * time.Second
 	maxTitleLength      = 160
 )
@@ -50,12 +50,12 @@ func runChecker(args []string) int {
 	if err != nil {
 		logger.Printf("not set up: %v", err)
 		if *check {
-			fmt.Println("FaceUnlock:", err)
+			tell("%v", err)
 		}
 		return 1
 	}
 	if *check {
-		fmt.Printf("FaceUnlock: %d iPhone(s) can approve on %s.\n", len(approvers.Devices), approvers.MachineName)
+		tell("%d iPhone(s) can approve on %s.", len(approvers.Devices), approvers.MachineName)
 		return 0
 	}
 	if pamType := os.Getenv("PAM_TYPE"); pamType != "" && pamType != "auth" {
@@ -99,7 +99,7 @@ func runChecker(args []string) int {
 	}
 	conn, err := net.DialTimeout("unix", path, 2*time.Second)
 	if err != nil {
-		logger.Printf("couldn't reach FaceUnlock: %v", err)
+		logger.Printf("couldn't reach %s: %v", appName, err)
 		return 1
 	}
 	defer conn.Close()
@@ -108,27 +108,27 @@ func runChecker(args []string) int {
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
 	var message checkerMessage
 	if encoder.Encode(controlRequest{Command: "approval", Approval: &approval}) != nil || decoder.Decode(&message) != nil || !message.Waiting {
-		logger.Printf("FaceUnlock can't ask the iPhone: %s", message.Error)
+		logger.Printf("%s can't ask the iPhone: %s", appName, message.Error)
 		return 1
 	}
-	fmt.Printf("FaceUnlock: approve on your iPhone, or wait %d s to type your password.\n", approval.ExpiresIn)
+	tell("approve on your iPhone, or wait %d s to type your password.", approval.ExpiresIn)
 
 	conn.SetDeadline(time.Now().Add(*wait + 5*time.Second))
 	message = checkerMessage{}
 	if decoder.Decode(&message) != nil || message.Error != "" {
-		fmt.Println("FaceUnlock: no answer from your iPhone.")
+		tell("no answer from your iPhone.")
 		return 1
 	}
 	switch message.Decision {
 	case string(actionDeny):
-		fmt.Println("FaceUnlock: denied on your iPhone.")
+		tell("denied on your iPhone.")
 		return 1
 	case string(actionApprove):
 		accepted, problem := verifyApproval(approvers, approval, message)
 		conn.SetDeadline(time.Now().Add(5 * time.Second))
 		encoder.Encode(checkerMessage{Accepted: &accepted, Error: problem})
 		if !accepted {
-			fmt.Println("FaceUnlock:", problem)
+			tell("%s", problem)
 			logger.Printf("rejected an approval: %s", problem)
 			return 1
 		}
@@ -136,11 +136,17 @@ func runChecker(args []string) int {
 		if device := approvers.find(message.DeviceID); device != nil {
 			name = device.Name
 		}
-		fmt.Printf("FaceUnlock: approved on %s.\n", name)
+		tell("approved on %s.", name)
 		logger.Printf("%s approved %s for %s", name, service, username)
 		return 0
 	}
 	return 1
+}
+
+// tell prints a line for you in the terminal; PAM passes the checker's output on (pam_exec's stdout option, or
+// the Mac's PAM module).
+func tell(format string, args ...any) {
+	fmt.Printf("%s: %s\n", appName, fmt.Sprintf(format, args...))
 }
 
 func verifyApproval(approvers *Approvers, approval Approval, message checkerMessage) (bool, string) {
@@ -159,7 +165,7 @@ func enableSudoHint() string {
 	if runtime.GOOS == "darwin" {
 		return "Run scripts/enable-mac-sudo.sh on the Mac again."
 	}
-	return "Run `sudo faceunlock-agent enable-sudo` again."
+	return "Run `sudo " + agentCommand + " enable-sudo` again."
 }
 
 func (a *Approvers) find(id string) *Approver {
@@ -229,21 +235,21 @@ func checkTree(path string) error {
 func checkSocket(path string, uid int) error {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return fmt.Errorf("FaceUnlock isn't running: %w", err)
+		return fmt.Errorf("%s isn't running: %w", appName, err)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if info.Mode()&os.ModeSocket == 0 || !ok || int(stat.Uid) != uid {
-		return fmt.Errorf("%s isn't the user's FaceUnlock socket", path)
+		return fmt.Errorf("%s isn't the user's %s socket", path, appName)
 	}
 	return nil
 }
 
-// agentSocketFor is where the user's agent (on a Mac, the FaceUnlock app) listens.
+// agentSocketFor is where the user's agent (on a Mac, the app) listens.
 func agentSocketFor(account *user.User) string {
 	if runtime.GOOS == "darwin" {
-		return filepath.Join(account.HomeDir, "Library", "Application Support", "FaceUnlock", "agent.sock")
+		return filepath.Join(account.HomeDir, "Library", "Application Support", appID, "agent.sock")
 	}
-	return filepath.Join("/run/user", account.Uid, "faceunlock-agent.sock")
+	return filepath.Join("/run/user", account.Uid, agentCommand+".sock")
 }
 
 func exitWithParent(parent int, done <-chan struct{}) {
@@ -393,9 +399,9 @@ func currentUserName() string {
 	return "uid " + strconv.Itoa(os.Geteuid())
 }
 
-// checkerLog goes to syslog (journalctl -t faceunlock, or the Mac's log), since PAM hides the checker's errors.
+// checkerLog goes to syslog (journalctl -t <appID>, or the Mac's log), since PAM hides the checker's errors.
 func checkerLog() *log.Logger {
-	if writer, err := syslog.New(syslog.LOG_AUTH|syslog.LOG_NOTICE, "faceunlock"); err == nil {
+	if writer, err := syslog.New(syslog.LOG_AUTH|syslog.LOG_NOTICE, appID); err == nil {
 		return log.New(writer, "", 0)
 	}
 	return log.New(io.Discard, "", 0)
@@ -405,7 +411,7 @@ func checkerLog() *log.Logger {
 func askApprovers(socket string) (*Approvers, error) {
 	conn, err := net.DialTimeout("unix", socket, 3*time.Second)
 	if err != nil {
-		return nil, errors.New("FaceUnlock isn't running")
+		return nil, errors.New(appName + " isn't running")
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(10 * time.Second))

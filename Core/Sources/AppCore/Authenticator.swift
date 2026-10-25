@@ -78,7 +78,7 @@ public final class Authenticator {
     /// Starts a pairing window and returns the one-time token to put in the QR code.
     public func startPairing() -> String {
         let token = randomToken(byteCount: 16)
-        pairing = (token, now().addingTimeInterval(FaceUnlockProtocol.pairingLifetime))
+        pairing = (token, now().addingTimeInterval(WireProtocol.pairingLifetime))
         return token
     }
 
@@ -113,7 +113,7 @@ public final class Authenticator {
             nonces.removeValue(forKey: oldest)
         }
         let nonce = randomToken()
-        nonces[nonce] = (deviceId, now.addingTimeInterval(FaceUnlockProtocol.nonceLifetime))
+        nonces[nonce] = (deviceId, now.addingTimeInterval(WireProtocol.nonceLifetime))
         return nonce
     }
 

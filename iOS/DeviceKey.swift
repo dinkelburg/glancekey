@@ -1,3 +1,4 @@
+import AppCore
 import CryptoKit
 import Foundation
 import LocalAuthentication
@@ -19,7 +20,7 @@ enum DeviceKey {
         }
     }
 
-    private static let service = "nl.dinkelworks.faceunlock.device-key"
+    private static let service = Brand.keychainService("device-key")
 
     private static var usesSecureEnclave: Bool {
         #if targetEnvironment(simulator)

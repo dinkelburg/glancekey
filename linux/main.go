@@ -1,5 +1,5 @@
-// faceunlock-agent unlocks this Linux desktop when you approve it with Face ID on your iPhone.
-// It keeps an outgoing WebSocket to the FaceUnlock relay, so it works on any network.
+// The agent unlocks this Linux desktop when you approve it with Face ID on your iPhone.
+// It keeps an outgoing WebSocket to the relay, so it works on any network.
 package main
 
 import (
@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
@@ -23,28 +24,35 @@ import (
 
 const version = "1.0"
 
-const usage = `faceunlock-agent: unlock this computer with Face ID on your iPhone.
+// usage is filled in from brand.go; tabwriter lines up the descriptions, however long the command's name is.
+var usage = func() string {
+	text := strings.NewReplacer("{agent}", agentCommand, "{ENV}", envPrefix).Replace(`{agent}: unlock this computer with Face ID on your iPhone.
 
 Usage:
-  faceunlock-agent install-service      Install and start the systemd user service
-  faceunlock-agent set-password [--stdin]
-                                        Save your login password in the keyring (Omarchy lock screen)
-  faceunlock-agent forget-password      Remove the saved password
-  faceunlock-agent pair                 Show a QR code to pair your iPhone
-  faceunlock-agent status               Show the connection, lock screen and paired iPhones
-  faceunlock-agent unpair <name-or-id>  Remove a paired iPhone
-  faceunlock-agent run                  Run the agent in the foreground (what the service does)
+  {agent} install-service	Install and start the systemd user service
+  {agent} set-password [--stdin]	Save your login password in the keyring (Omarchy lock screen)
+  {agent} forget-password	Remove the saved password
+  {agent} pair	Show a QR code to pair your iPhone
+  {agent} status	Show the connection, lock screen and paired iPhones
+  {agent} unpair <name-or-id>	Remove a paired iPhone
+  {agent} run	Run the agent in the foreground (what the service does)
 
 Approve sudo and polkit prompts on your iPhone (they fall back to the password if you don't):
-  sudo faceunlock-agent enable-sudo     Install the checker, trust the paired iPhones, add the PAM lines
-  sudo faceunlock-agent disable-sudo    Undo that
-  faceunlock-agent pam [--timeout 30s]  The checker PAM runs as root (not for direct use)
+  sudo {agent} enable-sudo	Install the checker, trust the paired iPhones, add the PAM lines
+  sudo {agent} disable-sudo	Undo that
+  {agent} pam [--timeout 30s]	The checker PAM runs as root (not for direct use)
 
 Environment:
-  FACEUNLOCK_SCREEN=omarchy|hyprlock|logind|fake   Force a lock screen backend
-  FACEUNLOCK_RELAY=<url>                           Use another relay (testing)
-  FACEUNLOCK_CONFIG_DIR=<dir>                      Keep state somewhere else (testing)
-`
+  {ENV}SCREEN=omarchy|hyprlock|logind|fake	Force a lock screen backend
+  {ENV}RELAY=<url>	Use another relay (testing)
+  {ENV}CONFIG_DIR=<dir>	Keep state somewhere else (testing)
+`)
+	var out strings.Builder
+	columns := tabwriter.NewWriter(&out, 0, 0, 2, ' ', 0)
+	columns.Write([]byte(text))
+	columns.Flush()
+	return out.String()
+}()
 
 func main() {
 	log.SetFlags(0)
@@ -67,7 +75,7 @@ func main() {
 		err = cmdStatus()
 	case "unpair":
 		if len(os.Args) != 3 {
-			err = errors.New("usage: faceunlock-agent unpair <name-or-id>")
+			err = errors.New("usage: " + agentCommand + " unpair <name-or-id>")
 		} else {
 			_, err = callAgent(controlRequest{Command: "unpair", Argument: os.Args[2]})
 		}
@@ -102,7 +110,7 @@ func cmdRun() error {
 	}
 	screen := detectScreen()
 	agent := newAgent(state, screen, keyringPasswords{})
-	log.Printf("FaceUnlock agent %s on %s, lock screen: %s, relay: %s", version, state.MachineName, screen.Name(), state.relayURL())
+	log.Printf("%s agent %s on %s, lock screen: %s, relay: %s", appName, version, state.MachineName, screen.Name(), state.relayURL())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -129,10 +137,10 @@ func cmdPair() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Scan this with your iPhone's Camera app (FaceUnlock must be installed):")
+	fmt.Println("Scan this with your iPhone's Camera app (" + appName + " must be installed):")
 	fmt.Println()
 	qrterminal.GenerateHalfBlock(response.Invite, qrterminal.L, os.Stdout)
-	fmt.Printf("\nOr paste this into the FaceUnlock app:\n%s\n\n", response.Invite)
+	fmt.Printf("\nOr paste this into the %s app:\n%s\n\n", appName, response.Invite)
 	fmt.Printf("Waiting for your iPhone until %s. Press Ctrl-C to cancel.\n", response.Expires.Local().Format("15:04"))
 
 	interrupted := make(chan os.Signal, 1)
@@ -155,11 +163,11 @@ func cmdPair() error {
 			}
 			for _, device := range now.Status.Devices {
 				if !known[device.ID] {
-					fmt.Printf("Paired %s. Unlock this computer from the FaceUnlock app.\n", device.Name)
+					fmt.Printf("Paired %s. Unlock this computer from the %s app.\n", device.Name, appName)
 					return nil
 				}
 			}
-			return errors.New("the pairing code expired; run `faceunlock-agent pair` again")
+			return fmt.Errorf("the pairing code expired; run `%s pair` again", agentCommand)
 		}
 	}
 }
@@ -183,12 +191,12 @@ func cmdStatus() error {
 	if s.PasswordNeeded {
 		saved := "saved"
 		if !s.PasswordSaved {
-			saved = "NOT saved; run `faceunlock-agent set-password`"
+			saved = "NOT saved; run `" + agentCommand + " set-password`"
 		}
 		fmt.Printf("Password:     %s\n", saved)
 	}
 	if len(s.Devices) == 0 {
-		fmt.Println("iPhones:      none paired; run `faceunlock-agent pair`")
+		fmt.Println("iPhones:      none paired; run `" + agentCommand + " pair`")
 	}
 	for i, device := range s.Devices {
 		label := "iPhones:     "
@@ -209,15 +217,15 @@ func cmdStatus() error {
 func sudoApprovalStatus(devices []deviceInfo) string {
 	data, err := os.ReadFile(approversPath)
 	if err != nil {
-		return "asks for your password (`sudo faceunlock-agent enable-sudo` lets your iPhone approve it)"
+		return "asks for your password (`sudo " + agentCommand + " enable-sudo` lets your iPhone approve it)"
 	}
 	var approvers Approvers
 	if json.Unmarshal(data, &approvers) != nil {
-		return "approvers.json is unreadable; run `sudo faceunlock-agent enable-sudo` again"
+		return "approvers.json is unreadable; run `sudo " + agentCommand + " enable-sudo` again"
 	}
 	for _, device := range devices {
 		if approvers.find(device.ID) == nil {
-			return fmt.Sprintf("%s can't approve yet; run `sudo faceunlock-agent enable-sudo` again", device.Name)
+			return fmt.Sprintf("%s can't approve yet; run `sudo %s enable-sudo` again", device.Name, agentCommand)
 		}
 	}
 	return fmt.Sprintf("waits for your iPhone first (%d approver(s))", len(approvers.Devices))
@@ -248,7 +256,7 @@ func cmdSetPassword(fromStdin bool) error {
 	if err := passwords.Save(password); err != nil {
 		return fmt.Errorf("saving to the keyring: %w", err)
 	}
-	fmt.Println("Saved in your keyring. FaceUnlock types it on the lock screen after you approve with Face ID.")
+	fmt.Println("Saved in your keyring. " + appName + " types it on the lock screen after you approve with Face ID.")
 	return nil
 }
 
@@ -286,7 +294,7 @@ func cmdInstallService() error {
 		return err
 	}
 	unit := fmt.Sprintf(`[Unit]
-Description=FaceUnlock agent (unlock with Face ID on your iPhone)
+Description=%s agent (unlock with Face ID on your iPhone)
 After=graphical-session.target
 PartOf=graphical-session.target
 
@@ -297,15 +305,15 @@ RestartSec=5
 
 [Install]
 WantedBy=graphical-session.target
-`, executable)
-	if err := os.WriteFile(filepath.Join(unitDir, "faceunlock-agent.service"), []byte(unit), 0o644); err != nil {
+`, appName, executable)
+	if err := os.WriteFile(filepath.Join(unitDir, agentCommand+".service"), []byte(unit), 0o644); err != nil {
 		return err
 	}
-	for _, args := range [][]string{{"--user", "daemon-reload"}, {"--user", "enable", "--now", "faceunlock-agent.service"}} {
+	for _, args := range [][]string{{"--user", "daemon-reload"}, {"--user", "enable", "--now", agentCommand + ".service"}} {
 		if out, err := exec.Command("systemctl", args...).CombinedOutput(); err != nil {
 			return fmt.Errorf("systemctl %s: %v: %s", strings.Join(args, " "), err, out)
 		}
 	}
-	fmt.Println("Installed and started. Logs: journalctl --user -u faceunlock-agent -f")
+	fmt.Println("Installed and started. Logs: journalctl --user -u " + agentCommand + " -f")
 	return nil
 }

@@ -1,3 +1,4 @@
+import AppCore
 import Foundation
 import OpenDirectory
 import Security
@@ -41,20 +42,20 @@ enum Keychain {
     }
 }
 
-/// The Mac login password FaceUnlock types on the lock screen.
+/// The Mac login password the app types on the lock screen.
 enum PasswordStore {
     enum Check {
         case correct, wrong, unknown
     }
 
-    private static let service = "nl.dinkelworks.faceunlock.login-password"
+    private static let service = Brand.keychainService("login-password")
 
     static var exists: Bool { Keychain.exists(service) }
     static func load() -> String? { Keychain.load(service) }
-    static func save(_ password: String) throws { try Keychain.save(password, service: service, label: "FaceUnlock: Mac login password") }
+    static func save(_ password: String) throws { try Keychain.save(password, service: service, label: "\(Brand.name): Mac login password") }
     static func delete() { Keychain.delete(service) }
 
-    /// Checks the password against the local account, so FaceUnlock never types a wrong one into the lock screen.
+    /// Checks the password against the local account, so the app never types a wrong one into the lock screen.
     static func check(_ password: String) async -> Check {
         await Task.detached(priority: .userInitiated) {
             let record: ODRecord

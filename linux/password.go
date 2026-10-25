@@ -29,7 +29,7 @@ type PasswordStore interface {
 // your login unlocks. It's checked with unix_chkpwd, PAM's own helper, before it's ever typed.
 type keyringPasswords struct{}
 
-var keyringAttributes = []string{"service", "faceunlock", "account", username()}
+var keyringAttributes = []string{"service", appID, "account", username()}
 
 func (keyringPasswords) Load() (string, error) {
 	out, err := run(10*time.Second, "", "secret-tool", append([]string{"lookup"}, keyringAttributes...)...)
@@ -43,7 +43,7 @@ func (keyringPasswords) Load() (string, error) {
 }
 
 func (keyringPasswords) Save(password string) error {
-	args := append([]string{"store", "--label=FaceUnlock: login password"}, keyringAttributes...)
+	args := append([]string{"store", "--label=" + appName + ": login password"}, keyringAttributes...)
 	_, err := run(10*time.Second, password, "secret-tool", args...)
 	return err
 }

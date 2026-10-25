@@ -1,9 +1,9 @@
 import CryptoKit
-import FaceUnlockCore
+import AppCore
 import Foundation
 
 // A stand-in for the iPhone app, with a software key instead of the Secure Enclave and no Face ID.
-// State lives in $FAKE_PHONE_STATE (default ~/.faceunlock-fake-phone.json). $FAKE_PHONE_RELAY overrides the
+// State lives in $FAKE_PHONE_STATE (default ~/.<Brand.id>-fake-phone.json). $FAKE_PHONE_RELAY overrides the
 // relay from the pairing code, e.g. when the computer reaches the same local relay under another address.
 
 struct State: Codable {
@@ -20,7 +20,7 @@ struct State: Codable {
 }
 
 let statePath = ProcessInfo.processInfo.environment["FAKE_PHONE_STATE"]
-    ?? (NSHomeDirectory() as NSString).appendingPathComponent(".faceunlock-fake-phone.json")
+    ?? (NSHomeDirectory() as NSString).appendingPathComponent(".\(Brand.id)-fake-phone.json")
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
     FileHandle.standardError.write(Data("error: \(message)\n".utf8))

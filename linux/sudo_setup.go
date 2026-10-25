@@ -14,13 +14,13 @@ import (
 	"strings"
 )
 
-// `sudo faceunlock-agent enable-sudo` lets sudo (and polkit on Linux) wait for your iPhone before asking for the
+// `sudo <agent> enable-sudo` lets sudo (and polkit on Linux) wait for your iPhone before asking for the
 // password. It copies this binary to a root-owned place, saves the paired iPhones as approvers.json and adds one
 // `auth sufficient` line to the PAM config. On the Mac, scripts/enable-mac-sudo.sh runs it with the PAM module.
 
 const (
-	macModulePath = "/usr/local/lib/pam/pam_faceunlock.so.2"
-	pamMarker     = "# FaceUnlock: approve with Face ID on your iPhone first (undo: faceunlock-agent disable-sudo)"
+	macModulePath = "/usr/local/lib/pam/pam_" + appID + ".so.2"
+	pamMarker     = "# " + appName + ": approve with Face ID on your iPhone first (undo: " + agentCommand + " disable-sudo)"
 )
 
 var (
@@ -31,12 +31,12 @@ var (
 	linuxPAMServices = []string{"sudo", "polkit-1"}
 )
 
-// createdMarker starts an override FaceUnlock created from a vendor file; disable-sudo deletes such files.
-const createdMarker = "# FaceUnlock created this file from "
+// createdMarker starts an override enable-sudo created from a vendor file; disable-sudo deletes such files.
+const createdMarker = "# " + appName + " created this file from "
 
 func cmdEnableSudo(args []string) error {
 	flags := flag.NewFlagSet("enable-sudo", flag.ContinueOnError)
-	module := flags.String("module", "", "macOS: the built pam_faceunlock.so.2")
+	module := flags.String("module", "", "macOS: the built PAM module (Mac/PAM)")
 	pamCheck := flags.String("pam-check", "", "macOS: the built pam-check tool, to test the module before sudo uses it")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -47,7 +47,7 @@ func cmdEnableSudo(args []string) error {
 	}
 	approvers, err := askApprovers(agentSocketFor(account))
 	if err != nil {
-		return fmt.Errorf("couldn't get your paired iPhones (%v). Is the FaceUnlock agent or Mac app running for %s?", err, account.Username)
+		return fmt.Errorf("couldn't get your paired iPhones (%v). Is the %s agent or Mac app running for %s?", err, appName, account.Username)
 	}
 	if len(approvers.Devices) == 0 {
 		return errors.New("no iPhone is paired yet; pair one first")
@@ -87,14 +87,14 @@ func cmdEnableSudo(args []string) error {
 	for _, device := range approvers.Devices {
 		names = append(names, device.Name)
 	}
-	fmt.Printf("Done. sudo now waits for %s first; open FaceUnlock to approve, or wait for the password prompt.\n", strings.Join(names, ", "))
-	fmt.Println("After pairing another iPhone or updating FaceUnlock, run this again. To undo: sudo faceunlock-agent disable-sudo")
+	fmt.Printf("Done. sudo now waits for %s first; open %s to approve, or wait for the password prompt.\n", strings.Join(names, ", "), appName)
+	fmt.Printf("After pairing another iPhone or updating %s, run this again. To undo: sudo %s disable-sudo\n", appName, agentCommand)
 	return nil
 }
 
 func cmdDisableSudo() error {
 	if os.Geteuid() != 0 {
-		return errors.New("run it with sudo: sudo faceunlock-agent disable-sudo")
+		return errors.New("run it with sudo: sudo " + agentCommand + " disable-sudo")
 	}
 	files := []string{"/etc/pam.d/sudo_local"}
 	if runtime.GOOS != "darwin" {
@@ -115,7 +115,7 @@ func cmdDisableSudo() error {
 	return nil
 }
 
-// removePAMConfig takes the FaceUnlock lines out again, and deletes overrides FaceUnlock created.
+// removePAMConfig takes the lines enable-sudo added out again, and deletes the overrides it created.
 func removePAMConfig(files []string) error {
 	for _, file := range files {
 		data, err := os.ReadFile(file)
@@ -148,10 +148,10 @@ func removePAMConfig(files []string) error {
 	return nil
 }
 
-// sudoingUser is the account that ran `sudo faceunlock-agent …`.
+// sudoingUser is the account that ran `sudo <agent> …`.
 func sudoingUser() (*user.User, error) {
 	if os.Geteuid() != 0 {
-		return nil, errors.New("run it with sudo: sudo faceunlock-agent enable-sudo")
+		return nil, errors.New("run it with sudo: sudo " + agentCommand + " enable-sudo")
 	}
 	name := os.Getenv("SUDO_USER")
 	if name == "" || name == "root" {
@@ -236,11 +236,11 @@ func enableMacPAM(module, pamCheck, username string) error {
 	if err := checkTree(macModulePath); err != nil {
 		return fmt.Errorf("sudo would load the module from an unsafe place: %w", err)
 	}
-	checkService := "/etc/pam.d/faceunlock-check"
-	if err := writeFile(checkService, []byte("auth       required       "+macModulePath+" --check\n"), 0o644); err != nil {
+	checkService := "/etc/pam.d/" + appID + "-check"
+	if err := writeFile(checkService, []byte("auth       required       "+macModulePath+" "+checkerInstallPath+" --check\n"), 0o644); err != nil {
 		return err
 	}
-	out, err := exec.Command(pamCheck, "faceunlock-check", username).CombinedOutput()
+	out, err := exec.Command(pamCheck, appID+"-check", username).CombinedOutput()
 	os.Remove(checkService)
 	if err != nil {
 		return fmt.Errorf("PAM couldn't use the module, so sudo_local wasn't changed: %v: %s", err, out)
@@ -255,7 +255,7 @@ func enableMacPAM(module, pamCheck, username string) error {
 	} else if err := backUp(file, data); err != nil {
 		return err
 	}
-	line := "auth       sufficient     " + macModulePath
+	line := "auth       sufficient     " + macModulePath + " " + checkerInstallPath
 	if err := writeFile(file, []byte(addPAMLine(string(data), line)), 0o444); err != nil {
 		return err
 	}
@@ -263,8 +263,8 @@ func enableMacPAM(module, pamCheck, username string) error {
 	return nil
 }
 
-// addPAMLine puts the FaceUnlock line before the first auth line (or Debian's @include common-auth), replacing
-// an earlier FaceUnlock line, so it runs before the password prompt.
+// addPAMLine puts the checker's line before the first auth line (or Debian's @include common-auth), replacing
+// an earlier one, so it runs before the password prompt.
 func addPAMLine(config, line string) string {
 	lines := strings.Split(removePAMLines(config), "\n")
 	at := -1
@@ -293,7 +293,7 @@ func addPAMLine(config, line string) string {
 func removePAMLines(config string) string {
 	var kept []string
 	for _, l := range strings.Split(config, "\n") {
-		if l == pamMarker || strings.Contains(l, checkerInstallPath) || strings.Contains(l, "pam_faceunlock.so") {
+		if l == pamMarker || strings.Contains(l, checkerInstallPath) || strings.Contains(l, "pam_"+appID+".so") {
 			continue
 		}
 		kept = append(kept, l)
@@ -312,7 +312,7 @@ func stripComments(config string) string {
 }
 
 func backUp(file string, data []byte) error {
-	backup := file + ".before-faceunlock"
+	backup := file + ".before-" + appID
 	if _, err := os.Stat(backup); err == nil {
 		return nil
 	}
@@ -332,7 +332,7 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	temp := path + ".faceunlock-tmp"
+	temp := path + "." + appID + "-tmp"
 	if err := os.WriteFile(temp, data, mode); err != nil {
 		return err
 	}

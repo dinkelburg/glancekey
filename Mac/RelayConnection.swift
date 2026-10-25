@@ -1,4 +1,4 @@
-import FaceUnlockCore
+import AppCore
 import Foundation
 
 /// Keeps the outgoing WebSocket to the relay open and answers the iPhone's requests that arrive on it.

@@ -1,4 +1,4 @@
-// pam-check: runs PAM authentication, to check pam_faceunlock before sudo relies on it.
+// pam-check: runs PAM authentication, to check the PAM module (pam_module.c) before sudo relies on it.
 //
 //   pam-check <service> <user>              pam_start + pam_authenticate with /etc/pam.d/<service> (needs root)
 //   pam-check --direct <module> [args...]   loads the module itself and calls it as sudo would (no root needed;

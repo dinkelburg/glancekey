@@ -22,7 +22,7 @@ type Screen interface {
 	Wake()
 }
 
-// fakeScreen pretends to lock and unlock. Used on non-Linux systems and with FACEUNLOCK_SCREEN=fake for testing.
+// fakeScreen pretends to lock and unlock. Used on non-Linux systems and with <envPrefix>SCREEN=fake for testing.
 type fakeScreen struct {
 	mu     sync.Mutex
 	locked bool

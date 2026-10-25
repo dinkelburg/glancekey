@@ -46,7 +46,7 @@ type phone struct {
 }
 
 func newTestAgent(t *testing.T, screen Screen, passwords PasswordStore) *Agent {
-	t.Setenv("FACEUNLOCK_CONFIG_DIR", t.TempDir())
+	t.Setenv(envPrefix+"CONFIG_DIR", t.TempDir())
 	state, err := loadState()
 	if err != nil {
 		t.Fatal(err)

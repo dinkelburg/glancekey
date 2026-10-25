@@ -1,5 +1,5 @@
 import AppIntents
-import FaceUnlockCore
+import AppCore
 
 // Shortcuts, Siri, Spotlight and the Action button. They open the app because Face ID needs it on screen.
 
@@ -29,7 +29,7 @@ struct ComputerQuery: EntityQuery {
 
 struct UnlockComputerIntent: AppIntent {
     static let title: LocalizedStringResource = "Unlock Computer"
-    static let description = IntentDescription("Unlocks a paired computer after Face ID. Leave Computer empty to unlock the one that's locked; requests such as sudo open in FaceUnlock for you to approve.")
+    static let description = IntentDescription("Unlocks a paired computer after Face ID. Leave Computer empty to unlock the one that's locked; requests such as sudo open in the app for you to approve.")
     static let openAppWhenRun = true
 
     @Parameter(title: "Computer")
@@ -65,7 +65,7 @@ struct LockComputerIntent: AppIntent {
     }
 }
 
-struct FaceUnlockShortcuts: AppShortcutsProvider {
+struct PhoneShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: UnlockComputerIntent(), phrases: ["Unlock my computer with \(.applicationName)"],
                     shortTitle: "Unlock Computer", systemImageName: "lock.open")

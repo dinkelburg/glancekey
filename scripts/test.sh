@@ -1,7 +1,11 @@
 #!/bin/zsh
-# Runs every test suite: the Swift core (incl. vectors shared with Go), the Linux agent and the relay.
+# Runs every test suite: the app's name check, the Swift core (incl. vectors shared with Go), the Linux agent and
+# the relay.
 set -euo pipefail
 cd "${0:A:h}/.."
+
+echo "== App name"
+scripts/check-brand.sh
 
 echo "== Swift core"
 swift test --package-path Core

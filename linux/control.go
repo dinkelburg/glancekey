@@ -51,8 +51,8 @@ type controlResponse struct {
 	Approvers *Approvers  `json:"approvers,omitempty"`
 }
 
-// Approvers is who may approve password prompts on this computer. `sudo faceunlock-agent enable-sudo` gets it
-// from the running agent (or the Mac app) and saves it, root-owned, as /etc/faceunlock/approvers.json.
+// Approvers is who may approve password prompts on this computer. `sudo <agent> enable-sudo` gets it
+// from the running agent (or the Mac app) and saves it, root-owned, at approversPath.
 type Approvers struct {
 	MachineID   string     `json:"machineId"`
 	MachineName string     `json:"machineName"`
@@ -66,9 +66,9 @@ type Approver struct {
 }
 
 func controlSocketPath() string {
-	if os.Getenv("FACEUNLOCK_CONFIG_DIR") == "" {
+	if os.Getenv(envPrefix+"CONFIG_DIR") == "" {
 		if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
-			return filepath.Join(runtimeDir, "faceunlock-agent.sock")
+			return filepath.Join(runtimeDir, agentCommand+".sock")
 		}
 	}
 	return filepath.Join(configDir(), "agent.sock")
@@ -193,7 +193,7 @@ func (a *Agent) unpair(which string) (PairedDevice, error) {
 		return PairedDevice{}, fmt.Errorf("no paired device called %q", which)
 	}
 	if len(matches) > 1 {
-		return PairedDevice{}, fmt.Errorf("several devices are called %q; use the id from `faceunlock-agent status`", which)
+		return PairedDevice{}, fmt.Errorf("several devices are called %q; use the id from `%s status`", which, agentCommand)
 	}
 	i := matches[0]
 	removed := a.state.Devices[i]
@@ -204,7 +204,7 @@ func (a *Agent) unpair(which string) (PairedDevice, error) {
 func callAgent(request controlRequest) (controlResponse, error) {
 	conn, err := net.DialTimeout("unix", controlSocketPath(), 3*time.Second)
 	if err != nil {
-		return controlResponse{}, errors.New("the agent isn't running. Start it with `systemctl --user start faceunlock-agent` (or `faceunlock-agent run`)")
+		return controlResponse{}, fmt.Errorf("the agent isn't running. Start it with `systemctl --user start %[1]s` (or `%[1]s run`)", agentCommand)
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(20 * time.Second))

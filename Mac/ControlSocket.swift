@@ -1,13 +1,13 @@
 import Darwin
-import FaceUnlockCore
+import AppCore
 import Foundation
 
-/// The Unix socket the root-owned checker (`faceunlock-agent pam`, which sudo runs) and `enable-sudo` talk to,
+/// The Unix socket the root-owned checker (the Go agent's `pam` command, which sudo runs) and `enable-sudo` talk to,
 /// with the same newline-separated JSON as the Linux agent's control socket. Only this user and root can open it.
 final class ControlSocket {
     static var path: String {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/FaceUnlock/agent.sock").path
+            .appendingPathComponent("Library/Application Support/\(Brand.id)/agent.sock").path
     }
 
     private let path: String
@@ -120,8 +120,10 @@ struct ControlResponse: Encodable {
     var approvers: Approvers?
 }
 
-/// Who may approve password prompts on this Mac; `enable-sudo` saves it, root-owned, as /etc/faceunlock/approvers.json.
+/// Who may approve password prompts on this Mac; `enable-sudo` saves it, root-owned, at `path`.
 struct Approvers: Codable {
+    static let path = "/etc/\(Brand.id)/approvers.json"
+
     struct Device: Codable {
         var id: String
         var name: String

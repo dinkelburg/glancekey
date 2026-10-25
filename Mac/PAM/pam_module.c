@@ -1,11 +1,12 @@
-// pam_faceunlock: lets sudo on the Mac wait for an approval from the FaceUnlock iPhone app.
+// The PAM module that lets sudo on the Mac wait for an approval from the iPhone app.
 //
-// macOS has no pam_exec, so this does what pam_exec does on Linux: it runs the root-owned checker
-// (`faceunlock-agent pam`, see linux/checker.go) with the PAM details in its environment, shows the checker's
+// macOS has no pam_exec, so this does what pam_exec does on Linux: it runs the root-owned checker (the Go
+// agent's `pam` command, see linux/checker.go) with the PAM details in its environment, shows the checker's
 // output in the terminal and succeeds only if the checker exits 0. The checker verifies the iPhone's signature
 // itself. Anything else falls through to the next module, normally the password prompt.
 //
-// /etc/pam.d/sudo_local:  auth  sufficient  /usr/local/lib/pam/pam_faceunlock.so.2 [/path/to/checker] [checker options]
+// /etc/pam.d/sudo_local:  auth  sufficient  /usr/local/lib/pam/pam_<app id>.so.2 /path/to/checker [checker options]
+// `enable-sudo` (linux/sudo_setup.go) writes that line; without a checker path the module does nothing.
 
 #include <errno.h>
 #include <security/pam_appl.h>
@@ -18,7 +19,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define DEFAULT_CHECKER "/usr/local/libexec/faceunlock/faceunlock-agent"
 #define MAX_ARGS 16
 
 static const char *item(pam_handle_t *pamh, int type) {
@@ -34,18 +34,14 @@ static char *env_entry(const char *name, const char *value) {
 }
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-    const char *checker = DEFAULT_CHECKER;
-    int first = 0;
-    if (argc > 0 && argv[0][0] == '/') {
-        checker = argv[0];
-        first = 1;
-    }
+    if (argc < 1 || argv[0][0] != '/') return PAM_IGNORE;
+    const char *checker = argv[0];
     const char *user = NULL;
     if (pam_get_item(pamh, PAM_USER, (const void **)&user) != PAM_SUCCESS || user == NULL || user[0] == '\0') return PAM_IGNORE;
 
     char *args[MAX_ARGS + 3] = {(char *)checker, "pam"};
     int count = 2;
-    for (int i = first; i < argc && count < MAX_ARGS + 2; i++) args[count++] = (char *)argv[i];
+    for (int i = 1; i < argc && count < MAX_ARGS + 2; i++) args[count++] = (char *)argv[i];
     args[count] = NULL;
 
     char *env[] = {
