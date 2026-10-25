@@ -3,25 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GlanceKey: unlock your Mac and Linux with Face ID on your iPhone</title>
-  <meta name="description" content="Look at your iPhone and your Mac or Linux machine unlocks. GlanceKey also approves sudo and fills in password prompts with Face ID, from anywhere. Open source, self-hostable, no data collected.">
+  <title>GlanceKey: unlock and approve everything on your Mac and Linux with Face ID</title>
+  <meta name="description" content="GlanceKey makes Face ID on your iPhone the one way you prove it’s you on your Mac and Linux machines: unlock the screen, approve sudo and fill in password prompts, from anywhere. Open source, self-hostable, no data collected.">
   <link rel="canonical" href="https://glancekey.dinkel.works/">
   <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://glancekey.dinkel.works/">
-  <meta property="og:title" content="GlanceKey: unlock your computer with a glance">
-  <meta property="og:description" content="Face ID on your iPhone unlocks your Mac or Linux machine, approves sudo and fills in password prompts, from anywhere. Open source, self-hostable, no data collected.">
-  <meta name="theme-color" content="#fbfbfe" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#080b16" media="(prefers-color-scheme: dark)">
+  <meta property="og:title" content="GlanceKey: unlock and approve everything with a glance">
+  <meta property="og:description" content="Face ID on your iPhone unlocks your Mac and Linux machines, approves sudo and fills in password prompts, from anywhere. Open source, self-hostable, no data collected.">
+  <meta name="theme-color" content="#fbfcfe" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#070b14" media="(prefers-color-scheme: dark)">
 </head>
 <body>
   <header class="site-header">
     <nav class="wrap nav" aria-label="Main">
       <a class="brand" href="/"><img src="/logo.svg" alt="" width="30" height="30">GlanceKey</a>
       <div class="nav-links">
+        <a href="#why">Why</a>
         <a href="#features">Features</a>
-        <a href="#how">How it works</a>
         <a href="#trust">Trust</a>
         <a href="#security">Security</a>
         <a href="#faq">FAQ</a>
@@ -33,18 +33,12 @@
     <section class="hero">
       <div class="wrap hero-grid">
         <div>
-          <span class="eyebrow">For iPhone, Mac and Linux</span>
-          <h1>Unlock your computer <span class="grad-text">with a glance.</span></h1>
-          <p class="lead">Look at your iPhone and your Mac or Linux machine unlocks. GlanceKey also approves sudo and fills in your Mac’s password prompts with Face ID, from anywhere.</p>
+          <h1>Unlock and approve everything with a glance.</h1>
+          <p class="lead">GlanceKey makes Face ID on your iPhone the one way you prove it’s you, on your Mac and on your Linux machines. Unlock the screen, approve sudo, fill in a password prompt: look at your phone and it’s done, wherever you are.</p>
           <div class="cta">
-            <span class="btn btn-soon"><span><small>Coming soon</small>to the App Store</span></span>
-            <a class="btn btn-ghost" href="#how">See how it works →</a>
+            <span class="btn btn-soon"><small>Coming soon</small>to the App Store</span>
+            <a class="btn btn-ghost" href="#how">How it works</a>
           </div>
-          <ul class="pills">
-            <li><a href="#open-source">Open source</a></li>
-            <li><a href="#self-hosting">Self-hostable</a></li>
-            <li><a href="#no-data">No data collected</a></li>
-          </ul>
         </div>
 
         <div class="device" aria-hidden="true">
@@ -73,79 +67,86 @@
               </div>
             </div>
           </div>
-          <div class="toast toast-unlock">
-            <span class="toast-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span>
-            <span>MacBook Pro unlocked<small>just now</small></span>
+        </div>
+      </div>
+    </section>
+
+    <section id="why" class="alt">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Your face is the key to all your computers</h2>
+          <p>Every machine has its own way in: a password here, a fingerprint there, another prompt on the next one. GlanceKey replaces them with one that’s always in your pocket.</p>
+        </div>
+        <div class="columns reasons">
+          <div>
+            <h3>One way to prove it’s you</h3>
+            <p>The same Face ID on every Mac and Linux machine you use, for unlocking and for approving. You stop typing your password, and you always see what you’re saying yes to.</p>
           </div>
-          <div class="toast toast-sudo">
-            <span class="toast-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span>
-            <span>sudo approved<small>with Face ID</small></span>
+          <div>
+            <h3>Made for working with agents</h3>
+            <p>AI agents now run on several of your machines at once, and they keep stopping at sudo and password prompts. Each prompt shows up on your iPhone with exactly what’s asking, and you approve it with a glance, without walking over to that machine.</p>
+          </div>
+          <div>
+            <h3>Simply faster</h3>
+            <p>Unlocking your Mac by looking at your phone beats typing a password, and it doesn’t depend on a fingerprint reader recognizing dry or worn fingers.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section id="features" class="alt">
+    <section id="features">
       <div class="wrap">
         <div class="section-head">
-          <span class="kicker">Features</span>
-          <h2>Everything that asks for your password</h2>
+          <h2>What it does</h2>
           <p>Your computer asks, your iPhone answers. Typing your password becomes the fallback.</p>
         </div>
-        <div class="grid-3">
-          <article class="card">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>
+        <ul class="list">
+          <li>
             <h3>Unlock from anywhere</h3>
-            <p>Wi‑Fi, 5G or the other side of the world. Your computer keeps one outgoing connection to a relay, so your iPhone reaches it from any network. No Bluetooth, no shared Wi‑Fi.</p>
-          </article>
-          <article class="card">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></span>
-            <h3>Approve sudo with Face ID</h3>
-            <p>sudo waits for your iPhone, which shows the exact command. Tap Approve and look at your phone. Deny it or ignore it and you type your password as usual. On Linux, polkit dialogs too.</p>
-          </article>
-          <article class="card">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.2-8.2M16 7l2.5 2.5M13.5 9.5l2 2"/></svg></span>
-            <h3>Mac password prompts</h3>
+            <p>Wi‑Fi, 5G or the other side of the world. Your computer keeps a connection out to a relay, so your iPhone reaches it from any network. No Bluetooth, no shared Wi‑Fi.</p>
+          </li>
+          <li>
+            <h3>Approve sudo</h3>
+            <p>sudo waits for your iPhone, which shows the exact command. Tap Approve and look at your phone. Deny it or ignore it and you type your password as usual. On Linux, admin dialogs too.</p>
+          </li>
+          <li>
+            <h3>Fill in Mac password prompts</h3>
             <p>When 1Password, Safari passwords, System Settings or an installer asks for your Mac password, approve it on your iPhone and GlanceKey fills it in.</p>
-          </article>
-          <article class="card">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2 19h20"/></svg></span>
+          </li>
+          <li>
             <h3>All your computers</h3>
-            <p>Pair as many Macs and Linux machines as you like. Opening the app unlocks the one that’s locked. If several are, Unlock all takes a single Face ID.</p>
-          </article>
-          <article class="card">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg></span>
-            <h3>Siri, Shortcuts, Action button</h3>
+            <p>Pair as many Macs and Linux machines as you like. Opening the app unlocks the one that’s locked, and Unlock all handles several with one look.</p>
+          </li>
+          <li>
+            <h3>Siri, Shortcuts and the Action button</h3>
             <p>Unlock without opening the app: ask Siri, run a shortcut or press the Action button.</p>
-          </article>
-          <article class="card">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
-            <h3>Made for Linux too</h3>
-            <p>Omarchy, hyprlock, GNOME and KDE. The agent is one static binary that runs as a systemd user service.</p>
-          </article>
-        </div>
+          </li>
+          <li>
+            <h3>Linux too</h3>
+            <p>Omarchy, hyprlock, GNOME and KDE. GlanceKey for Linux is a single program that starts with your session.</p>
+          </li>
+        </ul>
       </div>
     </section>
 
-    <section id="how">
+    <section id="how" class="alt">
       <div class="wrap">
         <div class="section-head">
-          <span class="kicker">How it works</span>
-          <h2>Set up in a minute. No account.</h2>
-          <p>Your iPhone pairs straight with your computer. There’s nothing to sign up for.</p>
+          <h2>Set up in a minute, no account</h2>
+          <p>Your iPhone pairs directly with your computer. There’s nothing to sign up for.</p>
         </div>
-        <ol class="steps">
+        <ol class="columns steps">
           <li>
             <h3>Install it on your computer</h3>
-            <p>The menu bar app on your Mac, or a single binary on Linux. Save your login password once; it stays on that computer.</p>
+            <p>The menu bar app on your Mac, or a single program on Linux. Save your login password once; it stays on that computer.</p>
           </li>
           <li>
             <h3>Scan the QR code</h3>
-            <p>Point your iPhone’s camera at it. Your iPhone creates a key for that computer, locked behind Face ID.</p>
+            <p>Point your iPhone’s camera at it. Your iPhone creates a key for that computer that only your face can use.</p>
           </li>
           <li>
-            <h3>Unlock with a glance</h3>
-            <p>Open GlanceKey or press the Action button, look at your phone, and you’re in.</p>
+            <h3>Look at your phone</h3>
+            <p>From then on, unlocking and approving takes a glance.</p>
           </li>
         </ol>
         <p class="note">No sign-up, no email address, no password for GlanceKey itself.</p>
@@ -155,26 +156,22 @@
     <section id="trust" class="trust">
       <div class="wrap">
         <div class="section-head">
-          <span class="kicker">Built to be trusted</span>
-          <h2>You shouldn’t have to take our word for it</h2>
-          <p>GlanceKey handles your login password and decides about sudo. So you can read every line, run every part yourself, and we don’t keep anything about you.</p>
+          <h2>Check it yourself</h2>
+          <p>GlanceKey handles your login password and approves sudo for you. So everything about it is out in the open.</p>
         </div>
-        <div class="grid-3">
-          <article class="card" id="open-source">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg></span>
+        <div class="columns">
+          <div id="open-source">
             <h3>Open source</h3>
-            <p>The iPhone app, the Mac app, the Linux agent and the relay are all open source, so you can check exactly what runs on your computer and what runs as root. The code goes public on GitHub at launch.</p>
-          </article>
-          <article class="card" id="self-hosting">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></span>
+            <p>The iPhone app, the Mac app, the Linux program and the relay are all open source, so you can see exactly what runs on your computer. The code goes public on GitHub at launch.</p>
+          </div>
+          <div id="self-hosting">
             <h3>Self-hostable</h3>
-            <p>The relay is one small Cloudflare Worker. Run it on your own Cloudflare account and point your computers at it; your iPhone follows when you pair. Then nothing of ours is in the loop.</p>
-          </article>
-          <article class="card" id="no-data">
-            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3.2 4.2M6.6 6.6C4.3 8 2.6 10.2 2 12c1 2.5 5 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></span>
+            <p>The relay that connects your iPhone to your computers is one small Cloudflare Worker. Run it on your own Cloudflare account and point your computers at it; your iPhone follows when you pair.</p>
+          </div>
+          <div id="no-data">
             <h3>No data collected</h3>
-            <p>No accounts, analytics, ads or tracking. The relay passes messages along without storing them, and your password never leaves your computer. <a href="/privacy">Privacy policy</a></p>
-          </article>
+            <p>No accounts, analytics, ads or tracking. The relay passes messages along without storing them, and your password never leaves your computer. <a href="/privacy">Read the privacy policy</a>.</p>
+          </div>
         </div>
       </div>
     </section>
@@ -182,37 +179,36 @@
     <section id="security">
       <div class="wrap">
         <div class="section-head">
-          <span class="kicker">Security</span>
-          <h2>The relay can’t unlock anything</h2>
-          <p>Every action is signed by a Face ID key on your iPhone and checked by your computer. Whatever sits in between only carries messages.</p>
+          <h2>How it keeps you safe</h2>
+          <p>Your iPhone signs every action and your computer checks it. Whatever sits in between only carries messages.</p>
         </div>
         <div class="flow">
-          <div class="node"><strong>Your iPhone</strong><span>Signs with a Face ID key in the Secure Enclave</span></div>
-          <div class="link">HTTPS<b class="h" aria-hidden="true">→</b><b class="v" aria-hidden="true">↓</b></div>
-          <div class="node node-relay"><strong>Relay</strong><span>Passes messages along. Can’t forge or replay them.</span></div>
-          <div class="link">Outgoing WebSocket<b class="h" aria-hidden="true">←</b><b class="v" aria-hidden="true">↑</b></div>
-          <div class="node"><strong>Your computer</strong><span>Checks every signature. Keeps your password.</span></div>
+          <div class="node"><strong>Your iPhone</strong><span>Asks, and signs with your face</span></div>
+          <div class="arrow" aria-hidden="true"><span class="h">→</span><span class="v">↓</span></div>
+          <div class="node node-relay"><strong>Relay</strong><span>Passes messages along, can’t make its own</span></div>
+          <div class="arrow" aria-hidden="true"><span class="h">←</span><span class="v">↑</span></div>
+          <div class="node"><strong>Your computer</strong><span>Checks, then unlocks or approves</span></div>
         </div>
-        <ul class="points">
+        <ul class="list">
           <li>
-            <h3>A key only your face opens</h3>
-            <p>Pairing creates a key in your iPhone’s Secure Enclave that only signs after Face ID. There’s no passcode fallback, and enrolling a new face invalidates it.</p>
+            <h3>A key only your face can use</h3>
+            <p>Pairing creates a key inside your iPhone that only works after Face ID recognizes you. Your passcode can’t use it, and adding a new face disables it.</p>
           </li>
           <li>
-            <h3>Every command is a one-time challenge</h3>
-            <p>Your computer hands out a single-use code that expires after 60 seconds, and only accepts your iPhone’s signature over that code, the computer, the phone and the action.</p>
+            <h3>Every request works once</h3>
+            <p>Your computer makes a fresh request for each action, and it expires after a minute. Your iPhone’s answer only fits that one request, so it can’t be copied or used again.</p>
           </li>
           <li>
-            <h3>Your password stays home</h3>
-            <p>It’s kept in the Mac keychain or the GNOME keyring and checked against your account before it’s typed. Typing stops if the screen unlocks partway through.</p>
+            <h3>Your password stays on your computer</h3>
+            <p>It’s kept in your Mac’s keychain or your Linux keyring and checked before it’s typed. Typing stops if the screen unlocks halfway through.</p>
           </li>
           <li>
-            <h3>sudo is checked as root</h3>
-            <p>A root-owned checker verifies your iPhone’s signature itself, so nothing running as you can approve. Your iPhone signs exactly the command it showed you.</p>
+            <h3>sudo checks your iPhone itself</h3>
+            <p>A part of GlanceKey that only the system can change checks your iPhone’s answer, so no other program running as you can approve in your place. Your iPhone signs exactly the command it showed you.</p>
           </li>
           <li>
-            <h3>Nothing listens on your computer</h3>
-            <p>Your computers only connect out to the relay. No ports are opened, and the pairing code never passes through the relay.</p>
+            <h3>Nothing opens up on your computer</h3>
+            <p>Your computers only connect out, so they don’t accept connections from the internet.</p>
           </li>
           <li>
             <h3>Your password still works</h3>
@@ -225,17 +221,20 @@
     <section id="faq" class="alt">
       <div class="wrap">
         <div class="section-head">
-          <span class="kicker">FAQ</span>
           <h2>Questions</h2>
         </div>
         <div class="faq">
           <details>
+            <summary>Does it work with AI agents?</summary>
+            <p>Yes. When an agent on your Mac or Linux machine runs sudo, or a Mac password prompt appears, the request shows up on your iPhone with the exact command, and nothing happens until you approve it. Over SSH, sudo asks for your password as usual.</p>
+          </details>
+          <details>
             <summary>Does it need Bluetooth or the same Wi‑Fi?</summary>
-            <p>No. Both devices only need internet. Your computer connects out to the relay, and your iPhone reaches it over HTTPS from any network.</p>
+            <p>No. Both devices only need internet. Your computer connects out to the relay, and your iPhone reaches it from any network.</p>
           </details>
           <details>
             <summary>What if my iPhone is dead or stolen?</summary>
-            <p>Type your password, as always. Someone holding your iPhone can’t use GlanceKey either: its key only signs after Face ID recognizes your face.</p>
+            <p>Type your password, as always. Someone holding your iPhone can’t use GlanceKey either: its key only works after Face ID recognizes your face.</p>
           </details>
           <details>
             <summary>What can the relay see?</summary>
@@ -255,7 +254,7 @@
           </details>
           <details>
             <summary>When can I get it?</summary>
-            <p>GlanceKey is in testing now. The iPhone app is on its way to the App Store, with the Mac app and the Linux agent alongside it.</p>
+            <p>GlanceKey is in testing now. The iPhone app is on its way to the App Store, with the Mac app and the Linux program alongside it.</p>
           </details>
         </div>
       </div>
