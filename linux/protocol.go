@@ -29,6 +29,10 @@ const (
 	actionUnlock Action = "unlock"
 	actionLock   Action = "lock"
 	actionStatus Action = "status"
+	// actionApprove and actionDeny answer an Approval. Approving is signed with approvalMessage; denying isn't
+	// signed, since it only makes the computer ask for its password instead.
+	actionApprove Action = "approve"
+	actionDeny    Action = "deny"
 )
 
 // PairingInvite is what the pairing QR code holds.
@@ -61,19 +65,34 @@ type PairResponse struct {
 
 type HelloRequest struct {
 	DeviceID string `json:"deviceId"`
+	// NotifyTopic is the iPhone's ntfy topic: nil leaves the saved one, "" removes it.
+	NotifyTopic *string `json:"notifyTopic,omitempty"`
 }
 
 type HelloResponse struct {
-	MachineID   string `json:"machineId"`
-	MachineName string `json:"machineName"`
-	Nonce       string `json:"nonce"`
+	MachineID   string     `json:"machineId"`
+	MachineName string     `json:"machineName"`
+	Nonce       string     `json:"nonce"`
+	Locked      *bool      `json:"locked,omitempty"`
+	Approvals   []Approval `json:"approvals,omitempty"`
+}
+
+// Approval is a password prompt (sudo, a polkit dialog) waiting for the iPhone. The root-owned checker
+// (checker.go) creates it and checks the signature itself.
+type Approval struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Detail    string `json:"detail"`
+	Nonce     string `json:"nonce"`
+	ExpiresIn int    `json:"expiresIn"`
 }
 
 type CommandRequest struct {
-	DeviceID  string `json:"deviceId"`
-	Action    Action `json:"action"`
-	Nonce     string `json:"nonce"`
-	Signature string `json:"signature"`
+	DeviceID   string `json:"deviceId"`
+	Action     Action `json:"action"`
+	Nonce      string `json:"nonce"`
+	Signature  string `json:"signature"`
+	ApprovalID string `json:"approvalId,omitempty"`
 }
 
 type CommandResponse struct {
@@ -102,6 +121,33 @@ type RelayResponse struct {
 // signedMessage is what the iPhone signs for a command.
 func signedMessage(machineID, deviceID string, action Action, nonce string) []byte {
 	return []byte(fmt.Sprintf("faceunlock/v1\n%s\n%s\n%s\n%s", machineID, deviceID, action, nonce))
+}
+
+// approvalMessage is what the iPhone signs to approve. It includes what the iPhone showed, so a swapped title
+// or detail makes the signature fail; the checker never puts line breaks in them, so fields can't shift.
+func approvalMessage(machineID, deviceID string, approval Approval) []byte {
+	return []byte(fmt.Sprintf("faceunlock-approve/v1\n%s\n%s\n%s\n%s\n%s\n%s",
+		machineID, deviceID, approval.ID, approval.Nonce, approval.Title, approval.Detail))
+}
+
+// Notifications go through ntfy (https://ntfy.sh): the iPhone app picks a random topic, and its free ntfy app
+// shows what's posted there. Only the computer's name goes to ntfy; the details travel over the relay.
+const (
+	ntfyServer    = "https://ntfy.sh"
+	notifyOpenURL = "faceunlock://approve"
+)
+
+// validTopic allows only letters, digits, - and _, so a topic can't point the computer anywhere but ntfy.
+func validTopic(topic string) bool {
+	if len(topic) < 16 || len(topic) > 64 {
+		return false
+	}
+	for _, c := range topic {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // pairingProof is an HMAC keyed with the QR code's token, so the token itself never crosses the network.

@@ -29,6 +29,24 @@ enum OperationState: Equatable {
     case finished(OperationResult)
 }
 
+/// What a computer answered when the app last asked, which needs no Face ID.
+struct MachineStatus: Equatable {
+    /// nil if the computer couldn't tell or runs an older FaceUnlock.
+    var locked: Bool?
+    var approvals: [Approval] = []
+    /// Why the computer couldn't be reached.
+    var error: String?
+    var checkedAt = Date()
+}
+
+/// A password prompt on one of the computers, waiting for you (see `Approval`).
+struct WaitingApproval: Identifiable, Equatable {
+    var id: String { approval.id }
+    let machine: PairedMachine
+    let approval: Approval
+    let expiresAt: Date
+}
+
 @MainActor
 final class PhoneModel: ObservableObject {
     static let shared = PhoneModel()
@@ -36,15 +54,28 @@ final class PhoneModel: ObservableObject {
     private enum Defaults {
         static let machines = "pairedMachines"
         static let autoUnlock = "autoUnlockOnOpen"
+        static let notifications = "notificationsEnabled"
+        static let notifyTopic = "notifyTopic"
     }
 
     @Published private(set) var machines: [PairedMachine]
     @Published private(set) var states: [String: OperationState] = [:]
+    @Published private(set) var statuses: [String: MachineStatus] = [:]
+    @Published private(set) var approvalStates: [String: OperationState] = [:]
     @Published private(set) var isPairing = false
     @Published var pairingResult: OperationResult?
+    /// On open, unlock the one locked computer. Approvals always wait for a tap.
     @Published var autoUnlockOnOpen: Bool {
         didSet { UserDefaults.standard.set(autoUnlockOnOpen, forKey: Defaults.autoUnlock) }
     }
+    /// Computers notify `notifyTopic` through ntfy when they wait for an approval.
+    @Published var notificationsEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(notificationsEnabled, forKey: Defaults.notifications)
+            Task { await refresh() }
+        }
+    }
+    let notifyTopic: String
 
     private struct InFlight {
         let id = UUID()
@@ -55,16 +86,108 @@ final class PhoneModel: ObservableObject {
 
     private var inFlight: InFlight?
     private var autoUnlockTask: Task<Void, Never>?
+    private var smartTask: Task<OperationResult?, Never>?
+    private var liveRefresh: Task<Void, Never>?
     private var cameFromBackground = true
 
     private init() {
         let defaults = UserDefaults.standard
         machines = defaults.data(forKey: Defaults.machines).flatMap { try? JSONDecoder().decode([PairedMachine].self, from: $0) } ?? []
         autoUnlockOnOpen = defaults.object(forKey: Defaults.autoUnlock) as? Bool ?? true
+        notificationsEnabled = defaults.bool(forKey: Defaults.notifications)
+        if let topic = defaults.string(forKey: Defaults.notifyTopic), Notifications.isValidTopic(topic) {
+            notifyTopic = topic
+        } else {
+            notifyTopic = Notifications.newTopic()
+            defaults.set(notifyTopic, forKey: Defaults.notifyTopic)
+        }
     }
 
     func state(for machine: PairedMachine) -> OperationState {
         states[machine.machineId] ?? .idle
+    }
+
+    func approvalState(for waiting: WaitingApproval) -> OperationState {
+        approvalStates[waiting.id] ?? .idle
+    }
+
+    var waitingApprovals: [WaitingApproval] {
+        let now = Date()
+        return machines.flatMap { machine -> [WaitingApproval] in
+            guard let status = statuses[machine.machineId] else { return [] }
+            return status.approvals.map {
+                WaitingApproval(machine: machine, approval: $0, expiresAt: status.checkedAt.addingTimeInterval(TimeInterval($0.expiresIn)))
+            }
+        }
+        .filter { $0.expiresAt > now }
+    }
+
+    var lockedMachines: [PairedMachine] {
+        machines.filter { statuses[$0.machineId]?.locked == true }
+    }
+
+    // MARK: - Asking the computers (no Face ID)
+
+    /// Asks every paired computer whether it's locked and what it's waiting for, all at once.
+    func refresh() async {
+        // Sending "" when notifications are off makes the computers forget the topic.
+        let topic = notificationsEnabled ? notifyTopic : ""
+        let results = await withTaskGroup(of: (PairedMachine, Result<HelloResponse, Error>).self) { group in
+            for machine in machines {
+                group.addTask {
+                    do {
+                        return (machine, .success(try await machine.client.hello(deviceId: machine.deviceId, notifyTopic: topic)))
+                    } catch {
+                        return (machine, .failure(error))
+                    }
+                }
+            }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+        // Cancelled because you tapped something meanwhile: the failed requests say nothing about the computers.
+        guard !Task.isCancelled else { return }
+        for (machine, result) in results {
+            switch result {
+            case .success(let hello):
+                statuses[machine.machineId] = MachineStatus(locked: hello.locked, approvals: hello.approvals ?? [])
+                if hello.machineName != machine.machineName {
+                    update(machine.machineId) { $0.machineName = hello.machineName }
+                }
+            case .failure(let error):
+                statuses[machine.machineId] = MachineStatus(error: Self.describe(error))
+            }
+        }
+    }
+
+    /// Opening the app (or tapping the notification, Siri or the Action button) unlocks the one locked computer.
+    /// Requests waiting for you only show up: approving one always takes a tap on Approve, so you see what it is.
+    @discardableResult
+    func smartOpen() async -> OperationResult? {
+        if let smartTask { return await smartTask.value }
+        let task = Task { await runSmartOpen() }
+        smartTask = task
+        let result = await task.value
+        smartTask = nil
+        return result
+    }
+
+    private func runSmartOpen() async -> OperationResult? {
+        await refresh()
+        let waiting = waitingApprovals
+        let locked = lockedMachines
+        switch (waiting.count, locked.count) {
+        case (0, 1):
+            return await perform(.unlock, on: locked[0], isAutomatic: true)
+        case (0, 0):
+            // An older computer doesn't say whether it's locked: unlock it if it's the only one, as before.
+            if machines.count == 1, let machine = machines.first, let status = statuses[machine.machineId],
+               status.error == nil, status.locked == nil {
+                return await perform(.unlock, on: machine, isAutomatic: true)
+            }
+            return nil
+        default:
+            return nil
+        }
     }
 
     // MARK: - Unlock and lock
@@ -86,12 +209,25 @@ final class PhoneModel: ObservableObject {
         return result
     }
 
-    /// For Siri, Shortcuts and the Action button. Without a computer, uses the first one paired.
+    /// For Siri, Shortcuts and the Action button. Without a computer, unlocking does what's waiting (see
+    /// `smartOpen`) and locking uses the first one paired.
     func perform(_ action: Action, onMachineWithId machineId: String?) async -> OperationResult {
+        if machineId == nil, action == .unlock, !machines.isEmpty {
+            autoUnlockTask?.cancel()
+            return await smartOpen() ?? OperationResult(success: true, message: waitingSummary)
+        }
         guard let machine = machines.first(where: { $0.machineId == machineId }) ?? machines.first else {
             return OperationResult(success: false, message: "Pair FaceUnlock with a computer first.")
         }
         return await perform(action, on: machine)
+    }
+
+    /// What's left after a smart open that didn't act, for Siri.
+    private var waitingSummary: String {
+        let waiting = waitingApprovals.count, locked = lockedMachines.count
+        if waiting > 0 { return "Open FaceUnlock to approve: \(waiting) request(s) waiting." }
+        if locked == 0 { return "Nothing is locked or waiting." }
+        return "Open FaceUnlock to choose: \(locked) computers are locked."
     }
 
     private func run(_ action: Action, on machine: PairedMachine) async -> OperationResult {
@@ -122,18 +258,143 @@ final class PhoneModel: ObservableObject {
             }
             result = OperationResult(success: response.ok, message: response.message)
         } catch {
-            result = OperationResult(success: false, message: describe(error))
+            result = OperationResult(success: false, message: Self.describe(error))
         }
         states[machine.machineId] = .finished(result)
+        if result.success, action != .status {
+            statuses[machine.machineId]?.locked = action == .lock
+        }
+        haptic(for: result)
+        return result
+    }
+
+    private func haptic(for result: OperationResult) {
         if result.success {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } else if result.message != "Cancelled" {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
+    }
+
+    /// Unlocks every locked computer with one Face ID.
+    @discardableResult
+    func unlockAll() async -> OperationResult {
+        autoUnlockTask?.cancel()
+        let targets = lockedMachines
+        guard !targets.isEmpty, inFlight == nil, !targets.contains(where: { if case .working = state(for: $0) { true } else { false } }) else {
+            return OperationResult(success: false, message: "Nothing to unlock right now.")
+        }
+        for machine in targets { states[machine.machineId] = .working("Unlocking…") }
+        let context = LAContext()
+        context.localizedCancelTitle = "Cancel"
+        let names = ListFormatter.localizedString(byJoining: targets.map(\.machineName))
+
+        // As with one computer: fetch the challenges while Face ID runs.
+        async let approval = context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Unlock \(names)")
+        let hellos = await withTaskGroup(of: (String, Result<HelloResponse, Error>).self) { group in
+            for machine in targets {
+                group.addTask {
+                    do { return (machine.machineId, .success(try await machine.client.hello(deviceId: machine.deviceId))) }
+                    catch { return (machine.machineId, .failure(error)) }
+                }
+            }
+            return await group.reduce(into: [String: Result<HelloResponse, Error>]()) { $0[$1.0] = $1.1 }
+        }
+        do {
+            _ = try await approval
+        } catch {
+            let result = OperationResult(success: false, message: Self.describe(error))
+            for machine in targets { states[machine.machineId] = .finished(result) }
+            haptic(for: result)
+            return result
+        }
+
+        var requests: [(PairedMachine, String, Data)] = []
+        for machine in targets {
+            do {
+                let hello = try hellos[machine.machineId]!.get()
+                let message = SignedMessage.bytes(machineId: machine.machineId, deviceId: machine.deviceId, action: .unlock, nonce: hello.nonce)
+                requests.append((machine, hello.nonce, try DeviceKey.sign(message, tag: machine.deviceId, context: context)))
+            } catch {
+                states[machine.machineId] = .finished(OperationResult(success: false, message: Self.describe(error)))
+            }
+        }
+        let results = await withTaskGroup(of: (String, OperationResult).self) { group in
+            for (machine, nonce, signature) in requests {
+                group.addTask {
+                    do {
+                        let response = try await machine.client.command(.unlock, nonce: nonce, signature: signature, deviceId: machine.deviceId)
+                        return (machine.machineId, OperationResult(success: response.ok, message: response.message))
+                    } catch {
+                        return (machine.machineId, OperationResult(success: false, message: Self.describe(error)))
+                    }
+                }
+            }
+            return await group.reduce(into: [String: OperationResult]()) { $0[$1.0] = $1.1 }
+        }
+        for (machineId, result) in results {
+            states[machineId] = .finished(result)
+            if result.success { statuses[machineId]?.locked = false }
+        }
+        let failed = targets.count - results.values.filter(\.success).count
+        let result = failed == 0
+            ? OperationResult(success: true, message: "Unlocked \(names)")
+            : OperationResult(success: false, message: "\(failed) of \(targets.count) didn't unlock")
+        haptic(for: result)
         return result
     }
 
-    private func describe(_ error: Error) -> String {
+    // MARK: - Approvals
+
+    /// Approves a waiting password prompt with Face ID. The computer verifies the signature.
+    @discardableResult
+    func approve(_ waiting: WaitingApproval) async -> OperationResult {
+        autoUnlockTask?.cancel()
+        if case .working = approvalState(for: waiting) { return OperationResult(success: false, message: "Already approving") }
+        approvalStates[waiting.id] = .working("Approving…")
+        let machine = waiting.machine, approval = waiting.approval
+        let context = LAContext()
+        context.localizedCancelTitle = "Cancel"
+        let title = approval.title.count > 60 ? String(approval.title.prefix(59)) + "…" : approval.title
+        let result: OperationResult
+        do {
+            try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Approve “\(title)” on \(machine.machineName)")
+            let message = ApprovalMessage.bytes(machineId: machine.machineId, deviceId: machine.deviceId, approval: approval)
+            let signature = try DeviceKey.sign(message, tag: machine.deviceId, context: context)
+            let response = try await machine.client.approve(approval, signature: signature, deviceId: machine.deviceId)
+            result = OperationResult(success: response.ok, message: response.ok ? "Approved on \(machine.machineName)" : response.message)
+        } catch {
+            result = OperationResult(success: false, message: Self.describe(error))
+        }
+        finish(waiting, with: result)
+        return result
+    }
+
+    /// Makes the computer stop waiting and ask for its password. No Face ID needed.
+    func deny(_ waiting: WaitingApproval) async {
+        autoUnlockTask?.cancel()
+        approvalStates[waiting.id] = .working("Denying…")
+        let result: OperationResult
+        do {
+            let response = try await waiting.machine.client.deny(waiting.approval, deviceId: waiting.machine.deviceId)
+            result = OperationResult(success: response.ok, message: response.message)
+        } catch {
+            result = OperationResult(success: false, message: Self.describe(error))
+        }
+        finish(waiting, with: result)
+    }
+
+    private func finish(_ waiting: WaitingApproval, with result: OperationResult) {
+        approvalStates[waiting.id] = .finished(result)
+        // A cancelled Face ID leaves the request waiting; anything else has answered it.
+        if result.message != "Cancelled" {
+            statuses[waiting.machine.machineId]?.approvals.removeAll { $0.id == waiting.id }
+            states[waiting.machine.machineId] = .finished(result)
+        }
+        haptic(for: result)
+    }
+
+    nonisolated static func describe(_ error: Error) -> String {
         if let error = error as? LAError {
             switch error.code {
             case .userCancel, .appCancel, .systemCancel: return "Cancelled"
@@ -153,6 +414,11 @@ final class PhoneModel: ObservableObject {
     func handle(url: URL) {
         autoUnlockTask?.cancel()
         guard url.scheme == FaceUnlockProtocol.urlScheme else { return }
+        if url.host == Notifications.openURL.host {
+            // The notification of a waiting approval: do what's waiting, whatever the open setting.
+            Task { await smartOpen() }
+            return
+        }
         Task { await pair(code: url.absoluteString) }
     }
 
@@ -181,12 +447,13 @@ final class PhoneModel: ObservableObject {
                 states[response.machineId] = nil
                 save()
                 pairingResult = OperationResult(success: true, message: "Paired with \(response.machineName)")
+                Task { await refresh() }
             } catch {
                 DeviceKey.delete(tag: deviceId)
                 throw error
             }
         } catch {
-            pairingResult = OperationResult(success: false, message: describe(error))
+            pairingResult = OperationResult(success: false, message: Self.describe(error))
         }
     }
 
@@ -194,12 +461,14 @@ final class PhoneModel: ObservableObject {
         DeviceKey.delete(tag: machine.deviceId)
         machines.removeAll { $0.machineId == machine.machineId }
         states[machine.machineId] = nil
+        statuses[machine.machineId] = nil
         save()
     }
 
-    // MARK: - Unlock when the app opens
+    // MARK: - When the app opens
 
     func scenePhaseChanged(to phase: ScenePhase) {
+        if phase == .active { startLiveRefresh() } else { liveRefresh?.cancel() }
         switch phase {
         case .background:
             cameFromBackground = true
@@ -208,15 +477,31 @@ final class PhoneModel: ObservableObject {
             // Face ID's own sheet makes the app inactive and active again; only react to real launches.
             guard cameFromBackground else { return }
             cameFromBackground = false
-            guard autoUnlockOnOpen, let machine = machines.first, inFlight == nil else { return }
-            // Brief delay so a pairing link or Shortcut that opened the app can cancel this first.
+            guard !machines.isEmpty, inFlight == nil else { return }
+            // Brief delay so a pairing link, notification or Shortcut that opened the app can cancel this first.
             autoUnlockTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 guard !Task.isCancelled, let self, self.inFlight == nil else { return }
-                await self.perform(.unlock, on: machine, isAutomatic: true)
+                if self.autoUnlockOnOpen {
+                    await self.smartOpen()
+                } else {
+                    await self.refresh()
+                }
             }
         default:
             break
+        }
+    }
+
+    /// While the app is on screen, new requests (say, a sudo you just typed) show up within a couple of seconds.
+    private func startLiveRefresh() {
+        liveRefresh?.cancel()
+        liveRefresh = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                if self.inFlight == nil, self.smartTask == nil, !self.machines.isEmpty { await self.refresh() }
+            }
         }
     }
 

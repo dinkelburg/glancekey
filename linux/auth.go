@@ -13,6 +13,14 @@ type PairedDevice struct {
 	PublicKey  []byte     `json:"publicKey"`
 	PairedAt   time.Time  `json:"pairedAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	// NotifyTopic is the iPhone's ntfy topic, for notifications when an approval is waiting.
+	NotifyTopic string `json:"notifyTopic,omitempty"`
+}
+
+// validSignature checks the iPhone's signature over message with its paired key.
+func (d PairedDevice) validSignature(message []byte, signature string) bool {
+	key, err := parsePublicKey(d.PublicKey)
+	return err == nil && validSignature(key, message, signature)
 }
 
 // authError messages match AuthError in the Swift core; the iPhone shows them as is.
@@ -30,6 +38,7 @@ const (
 	errUnknownNonce    authError = "The request was out of date. Try again."
 	errExpiredNonce    authError = "The request took too long. Try again."
 	errBadSignature    authError = "The computer rejected this iPhone's signature."
+	errApprovalGone    authError = "That request isn't waiting anymore."
 )
 
 const maxOutstandingNonces = 64
@@ -148,8 +157,7 @@ func (a *Authenticator) Verify(req CommandRequest, devices []PairedDevice) (Pair
 	if !now.Before(c.expires) {
 		return PairedDevice{}, errExpiredNonce
 	}
-	key, err := parsePublicKey(device.PublicKey)
-	if err != nil || !validSignature(key, signedMessage(a.machineID, device.ID, req.Action, req.Nonce), req.Signature) {
+	if !device.validSignature(signedMessage(a.machineID, device.ID, req.Action, req.Nonce), req.Signature) {
 		return PairedDevice{}, errBadSignature
 	}
 	return *device, nil

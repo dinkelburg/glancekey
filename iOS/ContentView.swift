@@ -39,6 +39,27 @@ struct ContentView: View {
                         .foregroundStyle(result.success ? .green : .orange)
                 }
             }
+            if !model.waitingApprovals.isEmpty {
+                Section("Waiting for you") {
+                    ForEach(model.waitingApprovals) { waiting in
+                        ApprovalCard(waiting: waiting)
+                    }
+                }
+            }
+            if model.lockedMachines.count > 1 {
+                Section {
+                    Button {
+                        Task { await model.unlockAll() }
+                    } label: {
+                        Label("Unlock all \(model.lockedMachines.count)", systemImage: "faceid")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                    }
+                    .buttonStyle(.borderedProminent)
+                } footer: {
+                    Text("One Face ID unlocks every locked computer.")
+                }
+            }
             ForEach(model.machines) { machine in
                 Section {
                     MachineCard(machine: machine)
@@ -48,8 +69,105 @@ struct ContentView: View {
                 Toggle("Unlock when FaceUnlock opens", isOn: $model.autoUnlockOnOpen)
                 Button("Add another computer") { showingAddComputer = true }
             } footer: {
-                Text("Tip: add “Unlock Computer” to the Action button, Control Center or your Home Screen in Shortcuts, and pick which computer it unlocks.")
+                Text("Opening FaceUnlock unlocks the one locked computer; with more, tap the one you want. Requests like sudo always wait for you to tap Approve. Tip: add “Unlock Computer” to the Action button, Control Center or your Home Screen in Shortcuts.")
             }
+            NotificationsSection()
+        }
+        .refreshable { await model.refresh() }
+    }
+}
+
+private struct ApprovalCard: View {
+    @EnvironmentObject private var model: PhoneModel
+    let waiting: WaitingApproval
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: waiting.machine.symbolName)
+                Text(waiting.machine.machineName).font(.subheadline.weight(.semibold))
+                Spacer()
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let left = Int(waiting.expiresAt.timeIntervalSince(context.date).rounded(.up))
+                    Text(left > 0 ? "\(left) s" : "Expired")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(waiting.approval.title)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+            Text(waiting.approval.detail)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button {
+                    Task { await model.approve(waiting) }
+                } label: {
+                    Label("Approve", systemImage: "faceid")
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                }
+                .buttonStyle(.borderedProminent)
+                Button(role: .destructive) {
+                    Task { await model.deny(waiting) }
+                } label: {
+                    Text("Deny")
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                }
+                .buttonStyle(.bordered)
+            }
+            .disabled(isWorking)
+            switch model.approvalState(for: waiting) {
+            case .working(let text):
+                HStack(spacing: 6) {
+                    ProgressView()
+                    Text(text)
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            case .finished(let result) where !result.success:
+                Label(result.message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            default:
+                EmptyView()
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var isWorking: Bool {
+        if case .working = model.approvalState(for: waiting) { return true }
+        return false
+    }
+}
+
+private struct NotificationsSection: View {
+    @EnvironmentObject private var model: PhoneModel
+    @State private var copied = false
+
+    var body: some View {
+        Section {
+            Toggle("Notify me with ntfy", isOn: $model.notificationsEnabled)
+            if model.notificationsEnabled {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Topic").font(.caption).foregroundStyle(.secondary)
+                    Text(model.notifyTopic)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+                Button(copied ? "Copied" : "Copy topic") {
+                    UIPasteboard.general.string = model.notifyTopic
+                    copied = true
+                }
+                Link("Get ntfy from the App Store", destination: URL(string: "https://apps.apple.com/app/ntfy/id1625396347")!)
+            }
+        } header: {
+            Text("Notifications")
+        } footer: {
+            Text(model.notificationsEnabled
+                 ? "In ntfy, tap +, paste this topic and subscribe (server ntfy.sh). When a computer waits for your approval, ntfy notifies you; tap the notification to open FaceUnlock. It only names the computer, not the command."
+                 : "Get a notification when a computer waits for your approval, for example for sudo. Uses the free ntfy app.")
         }
     }
 }
@@ -119,9 +237,20 @@ private struct MachineCard: View {
     private var statusLine: some View {
         switch model.state(for: machine) {
         case .idle:
-            Text(machine.platform == "macOS" ? "Mac" : "Linux")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            if let error = model.statuses[machine.machineId]?.error {
+                Label(error, systemImage: "wifi.exclamationmark")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+            } else if let locked = model.statuses[machine.machineId]?.locked {
+                Label(locked ? "Locked" : "Unlocked", systemImage: locked ? "lock.fill" : "lock.open")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(machine.platform == "macOS" ? "Mac" : "Linux")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         case .working(let text):
             HStack(spacing: 6) {
                 ProgressView()

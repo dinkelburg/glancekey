@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +35,11 @@ Usage:
   faceunlock-agent unpair <name-or-id>  Remove a paired iPhone
   faceunlock-agent run                  Run the agent in the foreground (what the service does)
 
+Approve sudo and polkit prompts on your iPhone (they fall back to the password if you don't):
+  sudo faceunlock-agent enable-sudo     Install the checker, trust the paired iPhones, add the PAM lines
+  sudo faceunlock-agent disable-sudo    Undo that
+  faceunlock-agent pam [--timeout 30s]  The checker PAM runs as root (not for direct use)
+
 Environment:
   FACEUNLOCK_SCREEN=omarchy|hyprlock|logind|fake   Force a lock screen backend
   FACEUNLOCK_RELAY=<url>                           Use another relay (testing)
@@ -42,6 +48,9 @@ Environment:
 
 func main() {
 	log.SetFlags(0)
+	if len(os.Args) > 1 && os.Args[1] == "pam" {
+		os.Exit(runChecker(os.Args[2:]))
+	}
 	prepareSessionEnv()
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
@@ -68,6 +77,10 @@ func main() {
 		err = keyringPasswords{}.Clear()
 	case "install-service":
 		err = cmdInstallService()
+	case "enable-sudo":
+		err = cmdEnableSudo(os.Args[2:])
+	case "disable-sudo":
+		err = cmdDisableSudo()
 	case "version", "--version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -188,7 +201,26 @@ func cmdStatus() error {
 		}
 		fmt.Printf("%s %s (%s, %s)\n", label, device.Name, device.ID, used)
 	}
+	fmt.Printf("sudo:         %s\n", sudoApprovalStatus(s.Devices))
 	return nil
+}
+
+// sudoApprovalStatus says whether sudo waits for the iPhone, and whether approvers.json is out of date.
+func sudoApprovalStatus(devices []deviceInfo) string {
+	data, err := os.ReadFile(approversPath)
+	if err != nil {
+		return "asks for your password (`sudo faceunlock-agent enable-sudo` lets your iPhone approve it)"
+	}
+	var approvers Approvers
+	if json.Unmarshal(data, &approvers) != nil {
+		return "approvers.json is unreadable; run `sudo faceunlock-agent enable-sudo` again"
+	}
+	for _, device := range devices {
+		if approvers.find(device.ID) == nil {
+			return fmt.Sprintf("%s can't approve yet; run `sudo faceunlock-agent enable-sudo` again", device.Name)
+		}
+	}
+	return fmt.Sprintf("waits for your iPhone first (%d approver(s))", len(approvers.Devices))
 }
 
 func cmdSetPassword(fromStdin bool) error {

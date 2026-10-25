@@ -133,6 +133,34 @@ struct ProtocolTests {
         #expect(key.isValidSignature(signature, for: message))
         #expect(PairingProof.make(token: "token-1", machineId: "machine-1", deviceId: "phone-1", deviceName: "iPhone",
                                   publicKey: Vectors.publicKey) == Vectors.proof)
+
+        let device = PairedDevice(id: "phone-1", name: "iPhone", publicKey: try #require(Data(base64Encoded: Vectors.approvalPublicKey)),
+                                  pairedAt: Date())
+        var approval = Approval(id: "approval-1", title: "sudo pacman -Syu", detail: "ruben on pts/1", nonce: "nonce-1", expiresIn: 30)
+        #expect(device.isValidSignature(Vectors.approvalSignature,
+                                        for: ApprovalMessage.bytes(machineId: "machine-1", deviceId: "phone-1", approval: approval)))
+        approval.title = "sudo rm -rf /"
+        #expect(!device.isValidSignature(Vectors.approvalSignature,
+                                         for: ApprovalMessage.bytes(machineId: "machine-1", deviceId: "phone-1", approval: approval)))
+    }
+
+    @Test func olderComputersStillDecode() throws {
+        // A computer without approvals support answers hello without `locked` and `approvals`.
+        let old = Data(#"{"machineId":"m","machineName":"Mac","nonce":"n"}"#.utf8)
+        let hello = try JSONDecoder().decode(HelloResponse.self, from: old)
+        #expect(hello.locked == nil && hello.approvals == nil)
+
+        // And an older iPhone sends commands without `approvalId`.
+        let command = Data(#"{"deviceId":"d","action":"unlock","nonce":"n","signature":"s"}"#.utf8)
+        #expect(try JSONDecoder().decode(CommandRequest.self, from: command).approvalId == nil)
+    }
+
+    @Test func notifyTopics() {
+        let topic = Notifications.newTopic()
+        #expect(Notifications.isValidTopic(topic))
+        #expect(!Notifications.isValidTopic("short"))
+        #expect(!Notifications.isValidTopic("faceunlock-abc/../../admin"))
+        #expect(!Notifications.isValidTopic("faceunlock-abcdefghij?x=1"))
     }
 }
 
@@ -140,4 +168,7 @@ enum Vectors {
     static let publicKey = "BAgPR2YEAVXtH4FV5lz7GfgmXFGdGeSUbwNl/aQuMfhqUZBYED2VyexlxQ8BJj+derxoiayhgiX9Brpn8PSdlSo="
     static let signature = "/ZB+omIwMIBk3ZC8I6bqsnPVnoLG4nVQpBIHfBaibW/1X5xhPvSPrcEjDHbILAeiXRVhgVH5BHcirEgxlQqo2A=="
     static let proof = "ozz/3xgOMjJa3B9AFHhgoRBQrwoewVS2qZoU7kAXjYc="
+    // Approval of "sudo pacman -Syu" (id approval-1, nonce nonce-1, detail "ruben on pts/1") on machine-1 by phone-1.
+    static let approvalPublicKey = "BL6yw1jEZ48le5S3AmGdVzJQ+uE8yMhKPjoXpbbVZpQlIhZju4aFpgIFFKdm9YxAc985PsCyKqRQMovVORAeHKc="
+    static let approvalSignature = "lT/6MJw2iN0NA/g4fMugjVeO+Zl5qPDtLLHXaupF0TDxWl1J9l8mbrnhha2zC3W8lW/C+Ism+Px5hp/w6PqG1Q=="
 }

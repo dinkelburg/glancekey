@@ -18,6 +18,9 @@ public enum FaceUnlockProtocol {
 
 public enum Action: String, Codable, Sendable, CaseIterable {
     case unlock, lock, status
+    /// Answers an `Approval`. Approving is signed with `ApprovalMessage`; denying isn't signed, since it only
+    /// makes the computer ask for its password instead.
+    case approve, deny
 }
 
 /// What the pairing QR code contains.
@@ -120,9 +123,13 @@ public struct PairResponse: Codable, Sendable {
 
 public struct HelloRequest: Codable, Sendable {
     public var deviceId: String
+    /// The iPhone's ntfy topic, so the computer can notify it when it's waiting for an approval.
+    /// nil leaves the saved topic as it is; "" removes it.
+    public var notifyTopic: String?
 
-    public init(deviceId: String) {
+    public init(deviceId: String, notifyTopic: String? = nil) {
         self.deviceId = deviceId
+        self.notifyTopic = notifyTopic
     }
 }
 
@@ -131,11 +138,40 @@ public struct HelloResponse: Codable, Sendable {
     public var machineName: String
     /// Single-use challenge the iPhone signs for its next command.
     public var nonce: String
+    /// Whether the screen is locked; nil if the computer couldn't tell (or runs an older version).
+    public var locked: Bool?
+    /// What the computer is waiting for you to approve, such as a `sudo` command.
+    public var approvals: [Approval]?
 
-    public init(machineId: String, machineName: String, nonce: String) {
+    public init(machineId: String, machineName: String, nonce: String, locked: Bool? = nil, approvals: [Approval]? = nil) {
         self.machineId = machineId
         self.machineName = machineName
         self.nonce = nonce
+        self.locked = locked
+        self.approvals = approvals
+    }
+}
+
+/// A password prompt on the computer (`sudo`, a polkit dialog) that waits for you to approve it on the iPhone.
+/// The computer's root-owned checker creates it and checks the signature itself, so neither the relay nor
+/// the FaceUnlock app or agent in between can approve anything on its own.
+public struct Approval: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    /// What it's for, e.g. "sudo pacman -Syu".
+    public var title: String
+    /// Who's asking and where, e.g. "ruben on ttys003".
+    public var detail: String
+    /// Single-use challenge from the checker.
+    public var nonce: String
+    /// Seconds left before the computer stops waiting and asks for the password.
+    public var expiresIn: Int
+
+    public init(id: String, title: String, detail: String, nonce: String, expiresIn: Int) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.nonce = nonce
+        self.expiresIn = expiresIn
     }
 }
 
@@ -143,14 +179,17 @@ public struct CommandRequest: Codable, Sendable {
     public var deviceId: String
     public var action: Action
     public var nonce: String
-    /// Base64 raw (r‖s) ECDSA P-256 signature over `SignedMessage.bytes`.
+    /// Base64 raw (r‖s) ECDSA P-256 signature over `SignedMessage.bytes`, or `ApprovalMessage.bytes` to approve.
     public var signature: String
+    /// The `Approval` that `approve` and `deny` answer.
+    public var approvalId: String?
 
-    public init(deviceId: String, action: Action, nonce: String, signature: String) {
+    public init(deviceId: String, action: Action, nonce: String, signature: String, approvalId: String? = nil) {
         self.deviceId = deviceId
         self.action = action
         self.nonce = nonce
         self.signature = signature
+        self.approvalId = approvalId
     }
 }
 
@@ -197,6 +236,33 @@ public enum SignedMessage {
     /// The exact bytes the iPhone signs. Binding the computer, device and action means a signature can't be reused elsewhere.
     public static func bytes(machineId: String, deviceId: String, action: Action, nonce: String) -> Data {
         Data("faceunlock/v1\n\(machineId)\n\(deviceId)\n\(action.rawValue)\n\(nonce)".utf8)
+    }
+}
+
+public enum ApprovalMessage {
+    /// The exact bytes the iPhone signs to approve. They include what the iPhone showed, so if anything in between
+    /// swapped the title or detail, the checker (which has its own copy) rejects the signature. The checker never
+    /// puts line breaks in the title or detail, so the fields can't be shifted.
+    public static func bytes(machineId: String, deviceId: String, approval: Approval) -> Data {
+        Data("faceunlock-approve/v1\n\(machineId)\n\(deviceId)\n\(approval.id)\n\(approval.nonce)\n\(approval.title)\n\(approval.detail)".utf8)
+    }
+}
+
+/// Push notifications through ntfy (https://ntfy.sh), whose free iPhone app receives them. Each iPhone picks a
+/// random topic; computers post to it when they're waiting for an approval. The notification only says which
+/// computer is waiting; the details travel over the relay.
+public enum Notifications {
+    public static let server = URL(string: "https://ntfy.sh")!
+    /// Tapping the notification opens this, which shows what's waiting.
+    public static let openURL = URL(string: "faceunlock://approve")!
+
+    public static func newTopic() -> String {
+        "faceunlock-" + randomToken(byteCount: 15)
+    }
+
+    /// Topics are only letters, digits, - and _, so a topic can't point the computer anywhere but ntfy.
+    public static func isValidTopic(_ topic: String) -> Bool {
+        (16...64).contains(topic.count) && topic.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
     }
 }
 

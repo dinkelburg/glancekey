@@ -8,13 +8,25 @@ public struct PairedDevice: Codable, Identifiable, Equatable, Sendable {
     public var publicKey: Data
     public var pairedAt: Date
     public var lastUsedAt: Date?
+    /// ntfy topic to notify when an approval is waiting (see `Notifications`).
+    public var notifyTopic: String?
 
-    public init(id: String, name: String, publicKey: Data, pairedAt: Date, lastUsedAt: Date? = nil) {
+    public init(id: String, name: String, publicKey: Data, pairedAt: Date, lastUsedAt: Date? = nil, notifyTopic: String? = nil) {
         self.id = id
         self.name = name
         self.publicKey = publicKey
         self.pairedAt = pairedAt
         self.lastUsedAt = lastUsedAt
+        self.notifyTopic = notifyTopic
+    }
+
+    /// Checks the iPhone's signature over `message` with its paired key.
+    public func isValidSignature(_ signature: String, for message: Data) -> Bool {
+        guard let key = try? P256.Signing.PublicKey(x963Representation: publicKey),
+              let data = Data(base64Encoded: signature),
+              let signature = try? P256.Signing.ECDSASignature(rawRepresentation: data)
+        else { return false }
+        return key.isValidSignature(signature, for: message)
     }
 }
 
@@ -28,6 +40,7 @@ public enum AuthError: Error, Equatable, CustomStringConvertible {
     case unknownNonce
     case expiredNonce
     case badSignature
+    case approvalGone
 
     public var description: String {
         switch self {
@@ -40,6 +53,7 @@ public enum AuthError: Error, Equatable, CustomStringConvertible {
         case .unknownNonce: "The request was out of date. Try again."
         case .expiredNonce: "The request took too long. Try again."
         case .badSignature: "The computer rejected this iPhone's signature."
+        case .approvalGone: "That request isn't waiting anymore."
         }
     }
 }
@@ -111,11 +125,7 @@ public final class Authenticator {
         }
         guard challenge.expires > now() else { throw AuthError.expiredNonce }
         let message = SignedMessage.bytes(machineId: machineId, deviceId: device.id, action: request.action, nonce: request.nonce)
-        guard let key = try? P256.Signing.PublicKey(x963Representation: device.publicKey),
-              let signatureData = Data(base64Encoded: request.signature),
-              let signature = try? P256.Signing.ECDSASignature(rawRepresentation: signatureData),
-              key.isValidSignature(signature, for: message)
-        else { throw AuthError.badSignature }
+        guard device.isValidSignature(request.signature, for: message) else { throw AuthError.badSignature }
         return device
     }
 }

@@ -88,7 +88,7 @@ private struct SetupSection: View {
             StatusRow(
                 ok: model.hasEventAccess,
                 title: "Accessibility access",
-                detail: model.hasEventAccess ? "Lets FaceUnlock type on the lock screen." : "Needed to type your password on the lock screen."
+                detail: model.hasEventAccess ? "Lets FaceUnlock type on the lock screen and into password dialogs." : "Needed to type your password on the lock screen and into password dialogs."
             ) {
                 if !model.hasEventAccess {
                     Button("Grant…") { ScreenController.requestEventAccess() }
@@ -238,9 +238,37 @@ private struct OptionsSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+            Toggle("Fill in password dialogs from iPhone", isOn: $model.fillsPasswordDialogs)
+            Text("When a dialog asks for your Mac password (1Password, System Settings), approve it on your iPhone and FaceUnlock types the password.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Label {
+                Text(sudoText)
+                    .font(.caption)
+                    .foregroundStyle(sudoIsOutdated ? Color.orange : Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "terminal")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
         }
         .toggleStyle(.switch)
         .controlSize(.small)
+    }
+
+    private var sudoIsOutdated: Bool {
+        if case .outdated = model.sudoApprovals { return true }
+        return false
+    }
+
+    private var sudoText: String {
+        switch model.sudoApprovals {
+        case .off: "sudo asks for your password. To approve it with your iPhone instead, run scripts/enable-mac-sudo.sh."
+        case .on: "sudo waits for your iPhone first, then asks for your password."
+        case .outdated(let name): "\(name) can't approve sudo yet. Run scripts/enable-mac-sudo.sh again."
+        }
     }
 }
 

@@ -12,6 +12,9 @@ const (
 	vectorPublicKey = "BAgPR2YEAVXtH4FV5lz7GfgmXFGdGeSUbwNl/aQuMfhqUZBYED2VyexlxQ8BJj+derxoiayhgiX9Brpn8PSdlSo="
 	vectorSignature = "/ZB+omIwMIBk3ZC8I6bqsnPVnoLG4nVQpBIHfBaibW/1X5xhPvSPrcEjDHbILAeiXRVhgVH5BHcirEgxlQqo2A=="
 	vectorProof     = "ozz/3xgOMjJa3B9AFHhgoRBQrwoewVS2qZoU7kAXjYc="
+	// Approval of "sudo pacman -Syu" (id approval-1, nonce nonce-1, detail "ruben on pts/1") on machine-1 by phone-1.
+	vectorApprovalPublicKey = "BL6yw1jEZ48le5S3AmGdVzJQ+uE8yMhKPjoXpbbVZpQlIhZju4aFpgIFFKdm9YxAc985PsCyKqRQMovVORAeHKc="
+	vectorApprovalSignature = "lT/6MJw2iN0NA/g4fMugjVeO+Zl5qPDtLLHXaupF0TDxWl1J9l8mbrnhha2zC3W8lW/C+Ism+Px5hp/w6PqG1Q=="
 )
 
 func TestCryptoKitSignatureVerifies(t *testing.T) {
@@ -26,6 +29,32 @@ func TestCryptoKitSignatureVerifies(t *testing.T) {
 	}
 	if validSignature(key, signedMessage("machine-1", "phone-1", actionLock, "nonce-1"), vectorSignature) {
 		t.Fatal("signature accepted for a different action")
+	}
+}
+
+func TestCryptoKitApprovalSignatureVerifies(t *testing.T) {
+	keyData, _ := base64.StdEncoding.DecodeString(vectorApprovalPublicKey)
+	device := PairedDevice{ID: "phone-1", PublicKey: keyData}
+	approval := Approval{ID: "approval-1", Title: "sudo pacman -Syu", Detail: "ruben on pts/1", Nonce: "nonce-1", ExpiresIn: 30}
+	if !device.validSignature(approvalMessage("machine-1", "phone-1", approval), vectorApprovalSignature) {
+		t.Fatal("CryptoKit approval signature rejected")
+	}
+	approval.Title = "sudo rm -rf /"
+	if device.validSignature(approvalMessage("machine-1", "phone-1", approval), vectorApprovalSignature) {
+		t.Fatal("signature accepted for a different command")
+	}
+}
+
+func TestValidTopic(t *testing.T) {
+	for topic, want := range map[string]bool{
+		"faceunlock-AbC_123-xyz": true,
+		"short":                  false,
+		"faceunlock-abc/../x":    false,
+		"faceunlock-abcdefghij?": false,
+	} {
+		if validTopic(topic) != want {
+			t.Errorf("validTopic(%q) != %v", topic, want)
+		}
 	}
 }
 

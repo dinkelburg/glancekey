@@ -17,8 +17,9 @@ import (
 // The CLI talks to the running agent over a Unix socket only you can open.
 
 type controlRequest struct {
-	Command  string `json:"command"`
-	Argument string `json:"argument,omitempty"`
+	Command  string    `json:"command"`
+	Argument string    `json:"argument,omitempty"`
+	Approval *Approval `json:"approval,omitempty"`
 }
 
 type deviceInfo struct {
@@ -43,10 +44,25 @@ type statusInfo struct {
 }
 
 type controlResponse struct {
-	Error   string      `json:"error,omitempty"`
-	Invite  string      `json:"invite,omitempty"`
-	Expires time.Time   `json:"expires,omitempty"`
-	Status  *statusInfo `json:"status,omitempty"`
+	Error     string      `json:"error,omitempty"`
+	Invite    string      `json:"invite,omitempty"`
+	Expires   time.Time   `json:"expires,omitempty"`
+	Status    *statusInfo `json:"status,omitempty"`
+	Approvers *Approvers  `json:"approvers,omitempty"`
+}
+
+// Approvers is who may approve password prompts on this computer. `sudo faceunlock-agent enable-sudo` gets it
+// from the running agent (or the Mac app) and saves it, root-owned, as /etc/faceunlock/approvers.json.
+type Approvers struct {
+	MachineID   string     `json:"machineId"`
+	MachineName string     `json:"machineName"`
+	Devices     []Approver `json:"devices"`
+}
+
+type Approver struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	PublicKey []byte `json:"publicKey"`
 }
 
 func controlSocketPath() string {
@@ -88,8 +104,13 @@ func (a *Agent) serveControl(ctx context.Context) error {
 		go func() {
 			defer conn.Close()
 			conn.SetDeadline(time.Now().Add(15 * time.Second))
+			decoder := json.NewDecoder(conn)
 			var request controlRequest
-			if err := json.NewDecoder(conn).Decode(&request); err != nil {
+			if err := decoder.Decode(&request); err != nil {
+				return
+			}
+			if request.Command == "approval" {
+				a.serveApproval(conn, decoder, request.Approval)
 				return
 			}
 			json.NewEncoder(conn).Encode(a.control(request))
@@ -111,6 +132,14 @@ func (a *Agent) control(request controlRequest) controlResponse {
 		return controlResponse{}
 	case "status":
 		return controlResponse{Status: a.status()}
+	case "approvers":
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		approvers := &Approvers{MachineID: a.state.MachineID, MachineName: a.state.MachineName, Devices: []Approver{}}
+		for _, device := range a.state.Devices {
+			approvers.Devices = append(approvers.Devices, Approver{ID: device.ID, Name: device.Name, PublicKey: device.PublicKey})
+		}
+		return controlResponse{Approvers: approvers}
 	case "unpair":
 		removed, err := a.unpair(request.Argument)
 		if err != nil {

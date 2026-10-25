@@ -42,14 +42,27 @@ public struct RelayClient: Sendable {
         return response
     }
 
-    public func hello(deviceId: String) async throws -> HelloResponse {
-        let response: HelloResponse = try await post("hello", body: HelloRequest(deviceId: deviceId), timeout: helloTimeout)
+    public func hello(deviceId: String, notifyTopic: String? = nil) async throws -> HelloResponse {
+        let response: HelloResponse = try await post("hello", body: HelloRequest(deviceId: deviceId, notifyTopic: notifyTopic), timeout: helloTimeout)
         guard response.machineId == machineId else { throw ClientError.wrongMachine }
         return response
     }
 
     public func command(_ action: Action, nonce: String, signature: Data, deviceId: String) async throws -> CommandResponse {
         let request = CommandRequest(deviceId: deviceId, action: action, nonce: nonce, signature: signature.base64EncodedString())
+        return try await post("command", body: request, timeout: commandTimeout)
+    }
+
+    /// `signature` is over `ApprovalMessage.bytes`.
+    public func approve(_ approval: Approval, signature: Data, deviceId: String) async throws -> CommandResponse {
+        let request = CommandRequest(deviceId: deviceId, action: .approve, nonce: approval.nonce,
+                                     signature: signature.base64EncodedString(), approvalId: approval.id)
+        return try await post("command", body: request, timeout: commandTimeout)
+    }
+
+    /// Makes the computer stop waiting and ask for its password instead. Needs no Face ID.
+    public func deny(_ approval: Approval, deviceId: String) async throws -> CommandResponse {
+        let request = CommandRequest(deviceId: deviceId, action: .deny, nonce: approval.nonce, signature: "", approvalId: approval.id)
         return try await post("command", body: request, timeout: commandTimeout)
     }
 

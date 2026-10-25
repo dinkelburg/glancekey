@@ -7,7 +7,9 @@ iPhone ──HTTPS──▶ relay (faceunlock.dinkelworks.nl, Cloudflare) ◀─
 ```
 
 - **iPhone app** (`iOS/`): tap **Unlock**, or just open the app, or use Siri, Shortcuts or the Action button. Look at the phone and the computer unlocks.
-- **Mac app** (`Mac/`): menu bar app. Types your login password into the lock screen when a paired iPhone asks.
+  - Opening the app first asks every paired computer whether it's locked or waiting for an approval (no Face ID). One locked computer: it unlocks it. Several: it lists them, with **Unlock all** for one Face ID. While the app is open it keeps checking, so new requests show up within seconds.
+  - It also approves `sudo` (and polkit dialogs on Linux) on your computers, and the Mac's password dialogs; see [Approve sudo with your iPhone](#approve-sudo-with-your-iphone) and [Mac password dialogs](#mac-password-dialogs). Approving always takes a tap on **Approve**, then Face ID.
+- **Mac app** (`Mac/`): menu bar app. Types your login password into the lock screen, or into a password dialog, when a paired iPhone asks.
 - **Linux agent** (`linux/`): a single static binary run as a systemd user service.
   - On Omarchy it types your password into Omarchy's lock screen with `wtype`.
   - With hyprlock it unlocks with `SIGUSR1`.
@@ -27,6 +29,8 @@ iPhone ──HTTPS──▶ relay (faceunlock.dinkelworks.nl, Cloudflare) ◀─
   - Mac: in the login keychain. Linux: in the GNOME keyring.
   - Each is checked against your account before it's typed (OpenDirectory on the Mac, `unix_chkpwd` on Linux).
   - Typing stops if the screen unlocks partway through, so the password can't end up in an app.
+- **Approvals are checked as root:** for `sudo`, a root-owned checker verifies the iPhone's signature itself, against a root-owned list of iPhones. The app or agent in between only passes messages, so neither it nor anything running as you can approve. The iPhone signs exactly the command it showed you.
+- **Password dialogs are filled like the lock screen:** the Mac app checks the iPhone's signature as for an unlock. It only types into Apple-signed dialog processes (checked by code signature), and the keystrokes go to that process alone, never to the app in front.
 
 ## Setup
 
@@ -59,6 +63,39 @@ Logs: `journalctl --user -u faceunlock-agent -f`
 ### Pairing
 On the Mac click **Pair iPhone…**; on Linux run `faceunlock-agent pair`. Then scan the QR code with the iPhone Camera app.
 
+## Approve sudo with your iPhone
+
+Optional. `sudo` (and, on Linux, polkit's admin dialogs) first waits for your iPhone:
+
+```
+$ sudo pacman -Syu
+FaceUnlock: approve on your iPhone, or wait 30 s to type your password.
+FaceUnlock: approved on Ruben's iPhone.
+```
+
+Open FaceUnlock (or tap the notification): it shows `sudo pacman -Syu` and approves it with Face ID. **Deny**, no answer within 30 s, or no connection: the normal password prompt follows. SSH sessions get the password prompt straight away.
+
+Set it up after pairing, and again after pairing another iPhone or updating FaceUnlock:
+- **Linux:** `sudo faceunlock-agent enable-sudo`. It copies the agent to `/usr/local/libexec/faceunlock/`, saves your paired iPhones in `/etc/faceunlock/approvers.json` and adds one `pam_exec` line to `/etc/pam.d/sudo` and `/etc/pam.d/polkit-1`. polkit keeps its config in `/usr/lib/pam.d` on Arch and Debian, so it creates the `/etc/pam.d/polkit-1` override from that; run it again after polkit updates. Undo: `sudo faceunlock-agent disable-sudo`.
+- **Mac:** `scripts/enable-mac-sudo.sh` (needs Go and the Xcode command line tools). It builds the checker and a small PAM module, tests the module with PAM, then adds it to `/etc/pam.d/sudo_local`, which survives macOS updates. Undo: `scripts/enable-mac-sudo.sh --disable`. If sudo ever stops working, this undoes it without sudo:
+  `osascript -e 'do shell script "rm /etc/pam.d/sudo_local" with administrator privileges'`
+
+How it works: PAM runs the checker (`faceunlock-agent pam`) as root. It asks the FaceUnlock agent or Mac app to show the request on your iPhone, then verifies the iPhone's signature against `approvers.json`. Problems are logged to syslog under `faceunlock` (`journalctl -t faceunlock`).
+
+**Notifications:** in the iPhone app, turn on **Notify me with ntfy** and subscribe to the topic it shows in the free [ntfy app](https://apps.apple.com/app/ntfy/id1625396347). Computers then post "… is waiting for you" to it; tap it to open FaceUnlock. Only the computer's name goes through ntfy.
+
+On Linux this is mostly a convenience: the login password the agent keeps for Omarchy's lock screen is in the GNOME keyring, which any program running as you can read, and on Linux it's also your sudo password.
+
+## Mac password dialogs
+
+When a Mac dialog asks for your password, the Mac app puts it on your iPhone (and notifies ntfy). Tap **Approve** and look at the phone: the Mac app types your saved login password into the dialog and submits it. **Deny** presses Cancel. Handle the dialog on the Mac instead and the request disappears from the phone.
+
+It covers two kinds of dialogs:
+- "… is trying to unlock" with **Use Password…** (LocalAuthentication, `coreautha`): 1Password, Safari passwords, and other apps that use Touch ID.
+- Administrator dialogs (`SecurityAgent`): System Settings, installers, `osascript … with administrator privileges`.
+
+Turn it off with **Fill in password dialogs from iPhone** in the menu bar item. It needs the saved password and Accessibility access.
+
 ## Limitations
 
 - **The computer has to be awake and logged in.**
@@ -80,6 +117,14 @@ FACEUNLOCK_CONFIG_DIR=/tmp/fu /tmp/faceunlock-agent run &
 FACEUNLOCK_CONFIG_DIR=/tmp/fu /tmp/faceunlock-agent pair     # prints faceunlock://pair?d=…
 swift run --package-path Core fake-phone pair 'faceunlock://pair?d=…'
 swift run --package-path Core fake-phone lock|unlock|status|test-replay|test-bad-signature
+swift run --package-path Core fake-phone hello                    # lock state and waiting approvals
+
+# Approvals without root: run the checker like PAM would, against that agent, and answer with fake-phone.
+echo '{"command":"approvers"}' | nc -U /tmp/fu/agent.sock   # save .approvers as approvers.json in a 0755 folder
+PAM_USER=$USER PAM_SERVICE=sudo /tmp/faceunlock-agent pam --approvers <dir>/approvers.json --socket /tmp/fu/agent.sock &
+swift run --package-path Core fake-phone approve --wait 10       # or deny, approve-tampered
+# The Mac PAM module the same way (build it as scripts/enable-mac-sudo.sh does):
+build/mac-sudo/pam-check --direct build/mac-sudo/pam_faceunlock.so.2 /tmp/faceunlock-agent --approvers … --socket …
 ```
 
 `project.yml` is the source of truth for the Xcode project (`xcodegen generate`). The Mac app's relay can be overridden with `defaults write nl.dinkelworks.faceunlock.mac relayURL http://localhost:8787`.

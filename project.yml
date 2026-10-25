@@ -20,7 +20,10 @@ targets:
     type: application
     platform: macOS
     sources:
-      - Mac
+      - path: Mac
+        # The sudo PAM module is built by scripts/enable-mac-sudo.sh, not into the app.
+        excludes:
+          - PAM
     dependencies:
       - package: FaceUnlockCore
         product: FaceUnlockCore

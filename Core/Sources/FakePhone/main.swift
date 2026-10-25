@@ -3,7 +3,8 @@ import FaceUnlockCore
 import Foundation
 
 // A stand-in for the iPhone app, with a software key instead of the Secure Enclave and no Face ID.
-// State lives in $FAKE_PHONE_STATE (default ~/.faceunlock-fake-phone.json).
+// State lives in $FAKE_PHONE_STATE (default ~/.faceunlock-fake-phone.json). $FAKE_PHONE_RELAY overrides the
+// relay from the pairing code, e.g. when the computer reaches the same local relay under another address.
 
 struct State: Codable {
     var relay: URL
@@ -12,7 +13,10 @@ struct State: Codable {
     var deviceId: String
     var privateKey: Data
 
-    var client: RelayClient { RelayClient(relay: relay, machineId: machineId) }
+    var client: RelayClient {
+        let relay = ProcessInfo.processInfo.environment["FAKE_PHONE_RELAY"].flatMap(URL.init(string:)) ?? relay
+        return RelayClient(relay: relay, machineId: machineId)
+    }
 }
 
 let statePath = ProcessInfo.processInfo.environment["FAKE_PHONE_STATE"]
@@ -48,21 +52,77 @@ func printJSON(_ object: [String: Any]) {
     print(String(decoding: data, as: UTF8.self))
 }
 
+/// Asks hello until an approval is waiting (or `seconds` pass), like the app does when it opens.
+func waitForApproval(state: State, seconds: Double) async throws -> Approval? {
+    let deadline = Date().addingTimeInterval(seconds)
+    repeat {
+        if let approval = try await state.client.hello(deviceId: state.deviceId).approvals?.first { return approval }
+        try await Task.sleep(nanoseconds: 250_000_000)
+    } while Date() < deadline
+    return nil
+}
+
+/// The value after `--name` in the arguments, if any.
+func option(_ name: String) -> String? {
+    guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
+    return arguments[index + 1]
+}
+
 let arguments = Array(CommandLine.arguments.dropFirst())
 let usage = """
 usage: fake-phone pair <pairing-url-or-code>
        fake-phone unlock | lock | status
+       fake-phone hello [--topic <ntfy-topic>|--topic ""]   # lock state and waiting approvals, no signature
+       fake-phone approve [--wait <seconds>]                  # approves the first waiting request
+       fake-phone approve-tampered [--wait <seconds>]         # signs a different command; must be rejected
+       fake-phone deny [--wait <seconds>]
        fake-phone test-replay          # reuses a nonce; the computer must reject the second use
        fake-phone test-bad-signature   # signs with a different key; the computer must reject it
 """
 
 switch arguments.first {
+case "hello":
+    let state = loadState()
+    do {
+        let hello = try await state.client.hello(deviceId: state.deviceId, notifyTopic: option("--topic"))
+        let approvals = (hello.approvals ?? []).map {
+            ["id": $0.id, "title": $0.title, "detail": $0.detail, "expiresIn": $0.expiresIn] as [String: Any]
+        }
+        printJSON(["machineName": hello.machineName, "locked": hello.locked.map { $0 as Any } ?? NSNull(), "approvals": approvals])
+    } catch {
+        fail(describe(error))
+    }
+
+case "approve", "approve-tampered", "deny":
+    let state = loadState()
+    do {
+        guard let approval = try await waitForApproval(state: state, seconds: Double(option("--wait") ?? "0") ?? 0) else {
+            fail("nothing is waiting for approval")
+        }
+        let response: CommandResponse
+        if arguments[0] == "deny" {
+            response = try await state.client.deny(approval, deviceId: state.deviceId)
+        } else {
+            var signed = approval
+            if arguments[0] == "approve-tampered" { signed.title = "sudo rm -rf /" }
+            let key = try P256.Signing.PrivateKey(rawRepresentation: state.privateKey)
+            let message = ApprovalMessage.bytes(machineId: state.machineId, deviceId: state.deviceId, approval: signed)
+            response = try await state.client.approve(approval, signature: key.signature(for: message).rawRepresentation, deviceId: state.deviceId)
+        }
+        printJSON(["ok": response.ok, "title": approval.title, "message": response.message])
+        exit(response.ok ? 0 : 1)
+    } catch {
+        fail(describe(error))
+    }
+
 case "pair":
     guard arguments.count == 2, let invite = PairingInvite(string: arguments[1]) else { fail("invalid pairing code\n\(usage)", code: 64) }
     let key = P256.Signing.PrivateKey()
     let deviceId = UUID().uuidString
     do {
-        let response = try await RelayClient(invite: invite).pair(invite: invite, deviceId: deviceId, deviceName: "fake-phone",
+        let client = ProcessInfo.processInfo.environment["FAKE_PHONE_RELAY"].flatMap(URL.init(string:))
+            .map { RelayClient(relay: $0, machineId: invite.machineId) } ?? RelayClient(invite: invite)
+        let response = try await client.pair(invite: invite, deviceId: deviceId, deviceName: "fake-phone",
                                                                   publicKey: key.publicKey.x963Representation)
         let state = State(relay: invite.relay, machineId: response.machineId, machineName: response.machineName,
                           deviceId: deviceId, privateKey: key.rawRepresentation)

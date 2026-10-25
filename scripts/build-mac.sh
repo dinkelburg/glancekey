@@ -11,6 +11,8 @@ built=build/DerivedData/Build/Products/Release/FaceUnlock.app
 installed=$HOME/Applications/FaceUnlock.app
 
 pkill -x FaceUnlock || true
+# Opening it again before the old copy has quit fails (LaunchServices -600).
+for _ in {1..50}; do pgrep -x FaceUnlock >/dev/null || break; sleep 0.1; done
 mkdir -p "$HOME/Applications"
 rm -rf "$installed"
 ditto "$built" "$installed"

@@ -27,6 +27,7 @@ type Agent struct {
 	state       *State
 	busy        bool
 	relayStatus string
+	approvals   map[string]*pendingApproval
 }
 
 func newAgent(state *State, screen Screen, passwords PasswordStore) *Agent {
@@ -37,6 +38,7 @@ func newAgent(state *State, screen Screen, passwords PasswordStore) *Agent {
 		now:         time.Now,
 		state:       state,
 		relayStatus: "connecting",
+		approvals:   map[string]*pendingApproval{},
 	}
 }
 
@@ -103,24 +105,39 @@ func (a *Agent) hello(body []byte) (any, error) {
 	}
 	a.mu.Lock()
 	known := false
-	for _, device := range a.state.Devices {
-		if device.ID == req.DeviceID {
-			known = true
-			break
+	for i, device := range a.state.Devices {
+		if device.ID != req.DeviceID {
+			continue
 		}
+		known = true
+		if topic := req.NotifyTopic; topic != nil && *topic != device.NotifyTopic && (*topic == "" || validTopic(*topic)) {
+			a.state.Devices[i].NotifyTopic = *topic
+			if err := a.state.save(); err != nil {
+				log.Printf("Couldn't save state: %v", err)
+			}
+		}
+		break
 	}
 	machineID, machineName := a.state.MachineID, a.state.MachineName
 	a.mu.Unlock()
 	if !known {
 		return nil, errUnknownDevice
 	}
-	return HelloResponse{MachineID: machineID, MachineName: machineName, Nonce: a.auth.IssueNonce(req.DeviceID)}, nil
+	response := HelloResponse{MachineID: machineID, MachineName: machineName, Nonce: a.auth.IssueNonce(req.DeviceID),
+		Approvals: a.waitingApprovals()}
+	if locked, err := a.screen.IsLocked(); err == nil {
+		response.Locked = &locked
+	}
+	return response, nil
 }
 
 func (a *Agent) command(body []byte) (any, error) {
 	var req CommandRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
+	}
+	if req.Action == actionApprove || req.Action == actionDeny {
+		return a.answerApproval(req)
 	}
 	a.mu.Lock()
 	devices := append([]PairedDevice(nil), a.state.Devices...)
