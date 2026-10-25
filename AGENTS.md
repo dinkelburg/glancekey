@@ -9,13 +9,14 @@ Unlock Ruben's Mac and Linux (Omarchy) machine with Face ID on his iPhone, from 
 - `iOS/`: iPhone app. `DeviceKey.swift` (Secure Enclave key, Face ID only), `PhoneModel.swift` (pair/unlock/lock, smart open, approvals, unlock all, live refresh while open, ntfy topic), `Intents.swift` (Shortcuts/Action button).
 - `linux/`: Go agent (`glancekey-agent`), static binary, systemd user service. Lock screen backends in `screen_linux.go`: Omarchy's Quickshell lock (types with `wtype`; no unlock IPC exists), hyprlock (`SIGUSR1`), logind (GNOME/KDE). Off Linux it uses a fake screen for testing. Approvals: `approvals.go` (agent side, ntfy), `checker.go` (`glancekey-agent pam`, the root-owned checker PAM runs on Linux *and* on the Mac), `sudo_setup.go` (`enable-sudo`/`disable-sudo`), `procinfo_*.go`.
 - `relay/`: Cloudflare Worker + Durable Object per machine at https://glancekey.dinkelworks.nl (DinkelWorks account). Only routes; not trusted.
+- `site/`: the landing page and privacy policy at https://glancekey.dinkel.works (static files in `site/public`, served as a Cloudflare Worker with static assets, DinkelWorks account). No JavaScript, cookies, third-party requests or request logs; the CSP in `public/_headers` enforces the first three. Its claims (open source, self-hostable, no data collected, the security model, what the relay sees and stores) must stay true to the code: update the page when those change.
 - `project.yml`: source of truth for the Xcode project (`xcodegen generate`; the .xcodeproj and Info.plists are generated and not committed).
 
 ## Keep in sync
 
 `Core/Sources/AppCore/Protocol.swift` and `linux/protocol.go` implement the same protocol (field names, signed message bytes incl. `ApprovalMessage`, pairing HMAC, error messages in `Authenticator.swift` ↔ `linux/auth.go`). The cross-language test vectors in both test suites must keep passing. The control-socket messages (`approvers`, `approval`, checker lines) in `Mac/ControlSocket.swift` match `linux/control.go` and `linux/approvals.go`, because the same Go checker talks to the Mac app.
 
-The app's name is defined only in `Core/Sources/AppCore/Brand.swift`, `linux/brand.go`, `project.yml` (`APP_NAME`/`APP_ID`; the scripts read them through `scripts/brand.sh`), `relay/src/index.ts` (`APP_NAME`) and `relay/wrangler.jsonc`. Code uses those constants and never spells the name out; `scripts/check-brand.sh` (part of `scripts/test.sh`) fails otherwise. Changing the display name is cheap. Changing the id changes bundle IDs, keychain items, the URL scheme and the paths on the computers, so everything has to be paired and set up again. The `faceunlock…/v1` prefixes in signed messages and the pairing proof are fixed protocol constants from the app's first name (FaceUnlock), not branding: leave them.
+The app's name is defined only in `Core/Sources/AppCore/Brand.swift`, `linux/brand.go`, `project.yml` (`APP_NAME`/`APP_ID`; the scripts read them through `scripts/brand.sh`), `relay/src/index.ts` (`APP_NAME`) and `relay/wrangler.jsonc`. Code uses those constants and never spells the name out; `scripts/check-brand.sh` (part of `scripts/test.sh`) fails otherwise. Docs (`*.md`) and the website (`site/`) spell it out, so update them by hand after a rename. Changing the display name is cheap. Changing the id changes bundle IDs, keychain items, the URL scheme and the paths on the computers, so everything has to be paired and set up again. The `faceunlock…/v1` prefixes in signed messages and the pairing proof are fixed protocol constants from the app's first name (FaceUnlock), not branding: leave them.
 
 Approval trust model: for sudo/polkit the checker (root) creates the nonce and verifies the signature against root-owned `approvers.json`; the agent, Mac app and relay only carry messages. Keep it that way: nothing user-level may decide a sudo approval. Mac password dialogs are the exception by design: the Mac app verifies those itself (same trust as unlock, since it holds the password anyway), types only into Apple-signed coreautha/SecurityAgent (code-signature check) and only via `postToPid`. The iPhone never approves without a tap on Approve.
 
@@ -26,6 +27,7 @@ Approval trust model: for sudo/polkit the checker (root) creates the nonce and v
 - iPhone: `scripts/install-iphone.sh` (cable or paired device; free Apple team U78YQGE72M, so installs expire after 7 days)
 - Linux binaries: `scripts/build-linux.sh` → `build/linux/`
 - Relay: `cd relay && npx wrangler deploy`. A deploy briefly drops every agent connection; they reconnect within seconds.
+- Website: `cd site && npm install && npx wrangler dev` (http://localhost:8788) to preview, `npx wrangler deploy` to publish.
 - End to end without devices: run the Go agent on the Mac (fake screen) and pair `fake-phone` with it; see README "Development" (also covers approvals and the Mac PAM module via `pam-check --direct`, no root needed).
 - sudo approvals: Linux `sudo glancekey-agent enable-sudo`; Mac `scripts/enable-mac-sudo.sh` (Ruben runs it; it needs his password and edits `/etc/pam.d/sudo_local`).
 
@@ -39,6 +41,6 @@ Approval trust model: for sudo/polkit the checker (root) creates the nonce and v
 
 ## Status (2026-10-25)
 
-- Renamed from FaceUnlock to GlanceKey on 2026-10-25, id included. Ruben's devices still run the FaceUnlock builds until he moves over (re-pair, enable-sudo again); keep the old `faceunlock-relay` worker up until then.
+- Renamed from FaceUnlock to GlanceKey on 2026-10-25, id included. The same day Ruben's iPhone and Mac moved to GlanceKey and FaceUnlock was removed from both. Mac sudo still runs the old FaceUnlock checker until Ruben runs `sudo /usr/local/libexec/faceunlock/faceunlock-agent disable-sudo` and `scripts/enable-mac-sudo.sh`. Omarchy still has the old agent. Nothing can use the old `faceunlock-relay` worker anymore.
 - Tested on the real devices: iPhone → relay → Mac unlock, Mac sudo approval, a Mac password dialog. The Linux agent is tested with the fake screen only; Ruben tests on Omarchy himself.
 - Not done: Omarchy sudo setup (Ruben). Real APNs needs a paid Apple account.

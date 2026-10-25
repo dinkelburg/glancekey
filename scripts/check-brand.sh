@@ -1,6 +1,7 @@
 #!/bin/zsh
 # Checks that the app's name is the same everywhere it's defined and spelled out nowhere else, so renaming the app
-# stays a matter of the places Core/Sources/AppCore/Brand.swift lists. Docs (*.md) may use the name freely.
+# stays a matter of the places Core/Sources/AppCore/Brand.swift lists. Docs (*.md) and the website (site/) may use the
+# name freely.
 set -euo pipefail
 cd "${0:A:h}/.."
 source scripts/brand.sh
@@ -25,7 +26,7 @@ needs relay/wrangler.jsonc "\"name\": \"$APP_ID-relay\""
 needs relay/wrangler.jsonc "\"pattern\": \"$relay_host\""
 
 definitions=(project.yml Core/Sources/AppCore/Brand.swift linux/brand.go relay/wrangler.jsonc)
-stray=$(git grep --untracked -n -i -e "$APP_ID" -- . ':!*.md' ${definitions/#/:!} |
+stray=$(git grep --untracked -n -i -e "$APP_ID" -- . ':!*.md' ':!site' ${definitions/#/:!} |
   grep -v '^relay/src/index.ts:[0-9]*:const APP_NAME = ' || true)
 
 if (( ${#problems} )) || [[ -n $stray ]]; then

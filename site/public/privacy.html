@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy policy · GlanceKey</title>
+  <meta name="description" content="GlanceKey doesn't collect personal data: no accounts, analytics, ads or tracking.">
+  <link rel="canonical" href="https://glancekey.dinkel.works/privacy">
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="wrap nav" aria-label="Main">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="30" height="30">GlanceKey</a>
+      <div class="nav-links">
+        <a href="/#features">Features</a>
+        <a href="/#trust">Trust</a>
+        <a href="/#security">Security</a>
+        <a href="/#faq">FAQ</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="prose">
+    <h1>Privacy policy</h1>
+    <p class="updated">Last updated 25 October 2026</p>
+
+    <div class="summary-box">
+      <p><strong>Short version:</strong> GlanceKey doesn’t collect personal data. There are no accounts, analytics, ads or trackers, in the apps or on this website. Your password never leaves your computer.</p>
+    </div>
+
+    <h2>Who we are</h2>
+    <p>GlanceKey is made by Ruben Dinkelman in the Netherlands. For questions about privacy, email <a href="mailto:ruben@dinkelworks.nl">ruben@dinkelworks.nl</a>.</p>
+
+    <h2>What stays on your devices</h2>
+    <ul>
+      <li><strong>On your iPhone:</strong> the key that signs your approvals, created in the Secure Enclave, which can’t export it; the list of computers you paired; and your notification topic if you turn notifications on.</li>
+      <li><strong>On your computer:</strong> your login password, in the Mac keychain or the GNOME keyring; the public keys of the iPhones you paired; and the secret the computer uses to connect to the relay.</li>
+    </ul>
+    <p>None of this is sent to us.</p>
+
+    <h2>The relay</h2>
+    <p>Your iPhone and your computers talk through a relay at glancekey.dinkelworks.nl, which runs on Cloudflare. All traffic to it is encrypted (HTTPS and secure WebSockets).</p>
+    <ul>
+      <li><strong>What passes through:</strong> the messages between your iPhone and your computers, such as whether a computer is locked, unlock commands, and approval requests, which include the command or dialog that’s waiting for you. Every action is signed by your iPhone and checked by your computer, so the relay can’t change or forge them.</li>
+      <li><strong>What it stores:</strong> one thing per computer, a hash of the secret the computer uses to claim its place on the relay. The messages themselves aren’t stored.</li>
+      <li><strong>Cloudflare:</strong> like any network, Cloudflare processes connection data such as IP addresses to deliver traffic, and keeps the relay’s request logs for a few days for troubleshooting. See <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare’s privacy policy</a>.</li>
+    </ul>
+    <p>You can run your own relay instead. Then nothing passes through ours.</p>
+
+    <h2>Notifications</h2>
+    <p>Notifications are optional. If you turn them on, your computers post a short message to <a href="https://ntfy.sh">ntfy.sh</a>, a third-party service, under a random topic your iPhone picked. The message only contains the computer’s name. ntfy’s own <a href="https://docs.ntfy.sh/privacy/">privacy policy</a> applies to it.</p>
+
+    <h2>Crash reports</h2>
+    <p>If you chose to share analytics with app developers in your iPhone’s settings, Apple may pass anonymous crash reports on to us. You can turn this off in Settings › Privacy &amp; Security › Analytics &amp; Improvements.</p>
+
+    <h2>This website</h2>
+    <p>This website has no cookies, analytics or JavaScript. Cloudflare serves it and processes connection data such as IP addresses to do so.</p>
+
+    <h2>Changes</h2>
+    <p>If GlanceKey ever starts handling data differently, this page changes first, with a new date at the top.</p>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-row">
+        <a class="brand" href="/"><img src="/logo.svg" alt="" width="30" height="30">GlanceKey</a>
+        <div class="footer-links">
+          <a href="/privacy">Privacy</a>
+          <a href="mailto:ruben@dinkelworks.nl">Contact</a>
+        </div>
+      </div>
+      <p class="fineprint">Made by Ruben Dinkelman in the Netherlands. This site has no cookies, trackers or JavaScript.<br>Apple, iPhone, Mac, Face ID and Siri are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
+    </div>
+  </footer>
+</body>
+</html>

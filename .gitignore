@@ -11,3 +11,5 @@ relay/worker-configuration.d.ts
 .swiftpm/
 test-evidence/
 linux/linux
+site/node_modules/
+site/.wrangler/

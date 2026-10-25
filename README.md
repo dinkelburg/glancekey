@@ -16,6 +16,7 @@ iPhone ──HTTPS──▶ relay (glancekey.dinkelworks.nl, Cloudflare) ◀─�
   - On GNOME and KDE it uses `loginctl unlock-session`.
 - **Relay** (`relay/`): Cloudflare Worker with one Durable Object per computer. Computers connect *out* to it, so nothing on your machines listens for connections, and neither device needs to be on the same network.
 - **Core** (`Core/`): the shared Swift protocol and security checks, plus `fake-phone`, a terminal stand-in for the iPhone.
+- **Website** (`site/`): the landing page and privacy policy at https://glancekey.dinkel.works. Static files; `cd site && npx wrangler deploy` publishes them.
 
 ## How it stays safe
 
