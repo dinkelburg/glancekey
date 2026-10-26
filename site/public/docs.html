@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Docs · GlanceKey</title>
+  <meta name="description" content="Set up GlanceKey on your iPhone, Mac and Linux computers: install, pair, sudo approvals, notifications and running your own relay.">
+  <link rel="canonical" href="https://www.glancekey.com/docs">
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="wrap nav" aria-label="Main">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="30" height="30">GlanceKey</a>
+      <div class="nav-links">
+        <a href="/#why">Why</a>
+        <a href="/#features">Features</a>
+        <a href="/#security">Security</a>
+        <a href="/docs">Docs</a>
+        <a href="/download">Download</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="prose">
+    <h1>Set up GlanceKey</h1>
+    <p class="updated">GlanceKey has two parts: the iPhone app, and GlanceKey on each computer. They reach each other through a relay on the internet, so they don't need to be on the same network.</p>
+
+    <ul class="toc">
+      <li><a href="#requirements">What you need</a></li>
+      <li><a href="#iphone">iPhone</a></li>
+      <li><a href="#mac">Mac</a></li>
+      <li><a href="#linux">Linux</a></li>
+      <li><a href="#pairing">Pairing</a></li>
+      <li><a href="#using">Unlocking</a></li>
+      <li><a href="#sudo">Approving sudo</a></li>
+      <li><a href="#dialogs">Mac password dialogs</a></li>
+      <li><a href="#notifications">Notifications</a></li>
+      <li><a href="#relay">Your own relay</a></li>
+      <li><a href="#updating">Updating and removing</a></li>
+      <li><a href="#troubleshooting">Troubleshooting</a></li>
+    </ul>
+
+    <h2 id="requirements">What you need</h2>
+    <ul>
+      <li>An iPhone with Face ID and iOS 17 or later.</li>
+      <li>A Mac with macOS 14 Sonoma or later, a Linux computer with Omarchy, hyprlock, GNOME or KDE (x86-64 or ARM64), or both.</li>
+      <li>Internet on each of them. No Bluetooth, no shared Wi‑Fi.</li>
+    </ul>
+
+    <h2 id="iphone">iPhone</h2>
+    <p>GlanceKey for iPhone is coming to the App Store; it's in testing now. Everything it needs to know about a computer, it learns when you pair with it.</p>
+
+    <h2 id="mac">Mac</h2>
+    <h3>Install</h3>
+    <p><a href="https://download.glancekey.com/GlanceKey.zip">Download GlanceKey for Mac</a>, open the zip and move GlanceKey to your Applications folder. Or use Homebrew:</p>
+    <pre><code>brew install --cask dinkelburg/glancekey/glancekey</code></pre>
+    <p>Open it, and GlanceKey appears in the menu bar. Click it to set it up:</p>
+    <ol>
+      <li><strong>Accessibility access:</strong> click <strong>Grant…</strong> and switch GlanceKey on in System Settings. It needs this to type your password on the lock screen and into password dialogs.</li>
+      <li><strong>Mac password:</strong> enter your login password and click <strong>Save</strong>. GlanceKey checks it, then keeps it in your keychain. It never leaves your Mac.</li>
+      <li><strong>Pair iPhone…</strong> shows a QR code; see <a href="#pairing">Pairing</a>.</li>
+    </ol>
+    <p>The menu also has <strong>Keep Mac awake on power adapter</strong> (a sleeping Mac can't be reached), <strong>Open at login</strong>, and <strong>Fill in password dialogs from iPhone</strong>.</p>
+
+    <h2 id="linux">Linux</h2>
+    <h3>Install</h3>
+    <p>This installs <code>glancekey-agent</code> in <code>~/.local/bin</code> and starts it with your session as a systemd user service (without one, it tells you how to start it). It doesn't need root, and running it again updates it.</p>
+    <pre><code>curl -fsSL https://www.glancekey.com/install.sh | sh</code></pre>
+    <p>Prefer to do it yourself? Download the program for <a href="https://download.glancekey.com/glancekey-agent-linux-amd64">x86-64</a> or <a href="https://download.glancekey.com/glancekey-agent-linux-arm64">ARM64</a>, compare it with the <a href="https://download.glancekey.com/SHA256SUMS">checksums</a>, put it on your PATH as <code>glancekey-agent</code> and run <code>glancekey-agent install-service</code>. Homebrew on Linux works too:</p>
+    <pre><code>brew install dinkelburg/glancekey/glancekey-agent
+glancekey-agent install-service</code></pre>
+    <h3>Set up</h3>
+    <pre><code>glancekey-agent set-password   # for Omarchy's lock screen; checked, then kept in your keyring
+glancekey-agent pair           # shows a QR code to scan with your iPhone
+glancekey-agent status         # the connection, the lock screen and your paired iPhones</code></pre>
+    <p>How it unlocks depends on your lock screen: on Omarchy it types your saved password (it needs <code>wtype</code>, <code>secret-tool</code> and an unlocked GNOME keyring, which Omarchy has), hyprlock gets a signal to unlock, and GNOME and KDE unlock through logind. Only Omarchy needs the saved password.</p>
+    <p>Logs: <code>journalctl --user -u glancekey-agent -f</code></p>
+
+    <h2 id="pairing">Pairing</h2>
+    <p>On the Mac click <strong>Pair iPhone…</strong>; on Linux run <code>glancekey-agent pair</code>. Scan the QR code with your iPhone's Camera and GlanceKey opens and pairs. Pairing creates a key on your iPhone for that computer, which only works after Face ID recognizes you. There's no account to make.</p>
+    <p>Pair each computer once. To add another computer, tap <strong>Add another computer</strong> in the app. To remove one, use its <strong>…</strong> menu in the app, and remove the iPhone on the computer too (the Mac menu, or <code>glancekey-agent unpair &lt;name&gt;</code>).</p>
+
+    <h2 id="using">Unlocking</h2>
+    <p>Open GlanceKey and look at your iPhone: if one computer is locked, it unlocks. If several are, tap the one you want, or <strong>Unlock all</strong> with one Face ID. Switch off <strong>Unlock when GlanceKey opens</strong> if you'd rather tap first.</p>
+    <p>Without opening the app: ask Siri, or use the <strong>Unlock Computer</strong> shortcut on the Action button, in Control Center or on your Home Screen.</p>
+    <p>The computer has to be awake and logged in. After a restart, type your password once yourself.</p>
+
+    <h2 id="sudo">Approving sudo</h2>
+    <p>Optional. sudo, and on Linux also polkit's admin dialogs, first waits for your iPhone:</p>
+    <pre><code>$ sudo pacman -Syu
+GlanceKey: approve on your iPhone, or wait 30 s to type your password.
+GlanceKey: approved on iPhone.</code></pre>
+    <p>Your iPhone shows the exact command. Tap <strong>Approve</strong> and look at your phone. If you tap <strong>Deny</strong>, don't answer within 30 seconds, or the iPhone can't be reached, sudo asks for your password as usual. Over SSH it asks for your password straight away.</p>
+    <h3>On a Mac</h3>
+    <p>In the GlanceKey menu, click <strong>Turn on…</strong> next to sudo and enter an administrator password. After pairing another iPhone or updating GlanceKey, the menu offers <strong>Update…</strong>. <strong>Turn off…</strong> puts sudo back to just your password.</p>
+    <p>If sudo ever stops working, this undoes it without sudo:</p>
+    <pre><code>osascript -e 'do shell script "rm /etc/pam.d/sudo_local" with administrator privileges'</code></pre>
+    <h3>On Linux</h3>
+    <pre><code>sudo glancekey-agent enable-sudo    # again after pairing another iPhone or updating
+sudo glancekey-agent disable-sudo   # back to just your password</code></pre>
+    <p>polkit keeps its settings in <code>/usr/lib/pam.d</code> on Arch and Debian, so <code>enable-sudo</code> copies them to <code>/etc/pam.d/polkit-1</code>; run it again after polkit updates.</p>
+    <h3>Why it's safe</h3>
+    <p>Your iPhone signs the command it showed you, and a part of GlanceKey that only the system can change checks that signature against the iPhones you paired. GlanceKey itself, the relay and other programs running as you only pass messages along, so they can't approve in your place.</p>
+    <p>On Linux this is mostly a convenience: the password GlanceKey keeps for Omarchy's lock screen is in your keyring, which programs running as you can read, and it's also your sudo password.</p>
+
+    <h2 id="dialogs">Mac password dialogs</h2>
+    <p>When a Mac dialog asks for your password, such as 1Password, Safari passwords, System Settings or an installer, it shows up on your iPhone. Tap <strong>Approve</strong> and look at your phone, and GlanceKey types your saved password into that dialog. <strong>Deny</strong> cancels it. Handle the dialog on the Mac instead and the request disappears from your phone. Switch it off with <strong>Fill in password dialogs from iPhone</strong> in the menu.</p>
+
+    <h2 id="notifications">Notifications</h2>
+    <p>In the iPhone app, turn on <strong>Notify me</strong>. When a computer waits for you, your iPhone gets a notification that names the computer; tap it to open GlanceKey. What's waiting travels over the relay when the app asks, never in the notification.</p>
+
+    <h2 id="relay">Your own relay</h2>
+    <p>The relay that connects your iPhone to your computers is one small Cloudflare Worker, in the <code>relay</code> folder of GlanceKey's code (which goes public on GitHub at launch). Deploy it to your own Cloudflare account with <code>npx wrangler deploy</code>, then point your computers at it:</p>
+    <pre><code># Mac: then quit and reopen GlanceKey
+defaults write nl.dinkelworks.glancekey.mac relayURL https://relay.example.com
+
+# Linux: set "relay" in ~/.config/glancekey/agent.json, then
+systemctl --user restart glancekey-agent</code></pre>
+    <p>Then pair again. The QR code carries the relay's address, so your iPhone follows. Notifications need your own build of the iPhone app and your own Apple push key, because Apple only delivers them to apps of the key's developer.</p>
+
+    <h2 id="updating">Updating and removing</h2>
+    <h3>Mac</h3>
+    <p>Update by downloading GlanceKey again and replacing it, or with <code>brew upgrade --cask glancekey</code>. If you use sudo approvals, click <strong>Update…</strong> when the menu asks for it.</p>
+    <p>To remove it: click <strong>Turn off…</strong> for sudo approvals, quit GlanceKey and delete it (or <code>brew uninstall --cask glancekey</code>), then remove the computer in the iPhone app.</p>
+    <h3>Linux</h3>
+    <p>Update by running the install command again, or with <code>brew upgrade glancekey-agent</code> followed by <code>glancekey-agent install-service</code>. If you use sudo approvals, run <code>sudo glancekey-agent enable-sudo</code> again.</p>
+    <p>To remove it:</p>
+    <pre><code>sudo glancekey-agent disable-sudo
+glancekey-agent forget-password
+systemctl --user disable --now glancekey-agent
+rm ~/.local/bin/glancekey-agent ~/.config/systemd/user/glancekey-agent.service   # or: brew uninstall glancekey-agent
+rm -r ~/.config/glancekey</code></pre>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <ul>
+      <li><strong>The computer shows as offline:</strong> check its internet connection; GlanceKey reconnects by itself. A sleeping computer can't be reached.</li>
+      <li><strong>The Mac doesn't unlock:</strong> check that the menu shows Accessibility access and a saved password.</li>
+      <li><strong>sudo asks for the password straight away:</strong> sudo approvals are off, you're connected over SSH, or the iPhone was paired after you turned them on (<strong>Update…</strong> on a Mac, <code>enable-sudo</code> again on Linux).</li>
+      <li><strong>What happened:</strong> the Mac menu shows recent activity; on Linux, see <code>journalctl --user -u glancekey-agent</code>, and <code>journalctl -t glancekey</code> for sudo.</li>
+    </ul>
+    <p>Still stuck? Email <a href="mailto:ruben@dinkelworks.nl">ruben@dinkelworks.nl</a>.</p>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-row">
+        <a class="brand" href="/"><img src="/logo.svg" alt="" width="30" height="30">GlanceKey</a>
+        <div class="footer-links">
+          <a href="/download">Download</a>
+          <a href="/docs">Docs</a>
+          <a href="/privacy">Privacy</a>
+          <a href="mailto:ruben@dinkelworks.nl">Contact</a>
+        </div>
+      </div>
+      <p class="fineprint">Made by Ruben Dinkelman in the Netherlands. This site has no cookies, trackers or JavaScript.<br>Apple, iPhone, Mac, Face ID and Siri are trademarks of Apple Inc., registered in the U.S. and other countries.</p>
+    </div>
+  </footer>
+</body>
+</html>

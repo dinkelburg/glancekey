@@ -3,6 +3,7 @@ import AppCore
 import IOKit.ps
 import IOKit.pwr_mgt
 import Network
+import Security
 import ServiceManagement
 import SystemConfiguration
 
@@ -22,12 +23,14 @@ final class AppModel: ObservableObject {
         let message: String
     }
 
-    /// Whether sudo waits for the iPhone (scripts/enable-mac-sudo.sh), from `Approvers.path`.
+    /// Whether sudo waits for the iPhone (turned on from the menu or scripts/enable-mac-sudo.sh), from `Approvers.path`.
     enum SudoApprovals: Equatable {
         case off
         case on
         /// A paired iPhone isn't in approvers.json yet.
         case outdated(String)
+        /// sudo still runs the checker of another version of this app.
+        case otherVersion
     }
 
     private enum Defaults {
@@ -79,6 +82,8 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
     private var dialogTimer: Timer?
     private var sleepAssertion: IOPMAssertionID?
+    /// The version of the checker sudo runs; read at launch and after changing sudo approvals.
+    private var installedCheckerVersion = AppModel.readInstalledCheckerVersion()
     private var isBusy = false
 
     private init() {
@@ -150,19 +155,122 @@ final class AppModel: ObservableObject {
         let loginItem = SMAppService.mainApp.status == .enabled
         if loginItem != launchAtLogin { launchAtLogin = loginItem }
         if let expires = pairingExpiresAt, expires < Date() { cancelPairing() }
-        let sudo = Self.readSudoApprovals(devices: devices)
+        let sudo = Self.readSudoApprovals(devices: devices, checkerVersion: installedCheckerVersion)
         if sudo != sudoApprovals { sudoApprovals = sudo }
         updateSleepAssertion()
     }
 
-    private static func readSudoApprovals(devices: [PairedDevice]) -> SudoApprovals {
+    private static func readSudoApprovals(devices: [PairedDevice], checkerVersion: String?) -> SudoApprovals {
         guard let data = FileManager.default.contents(atPath: Approvers.path),
               let approvers = try? JSONDecoder().decode(Approvers.self, from: data)
         else { return .off }
         if let missing = devices.first(where: { device in !approvers.devices.contains { $0.id == device.id } }) {
             return .outdated(missing.name)
         }
+        if let checkerVersion, checkerVersion != Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            return .otherVersion
+        }
         return .on
+    }
+
+    private static func readInstalledCheckerVersion() -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: installedChecker)
+        process.arguments = ["version"]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let version = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        return process.terminationStatus == 0 ? version.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+    }
+
+    // MARK: - Turning sudo approvals on and off
+
+    /// The checker, PAM module and pam-check this app carries (scripts/build-mac-helpers.sh).
+    private static let helpers = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers")
+    /// Where enable-sudo installs the checker (linux/checker.go), root-owned.
+    private static let installedChecker = "/usr/local/libexec/\(Brand.id)/\(Brand.id)-agent"
+
+    /// False in builds without the helpers; scripts/enable-mac-sudo.sh does the same from the source then.
+    var canSetUpSudo: Bool {
+        FileManager.default.isExecutableFile(atPath: Self.helpers.appendingPathComponent("\(Brand.id)-agent").path)
+    }
+
+    /// Makes sudo wait for the iPhones paired now (run it again after pairing another), or puts sudo back to just
+    /// the password. Runs as root after macOS asks for an administrator's password. Returns an error message, or nil.
+    func setSudoApprovals(on: Bool) async -> String? {
+        let script: String
+        if on {
+            guard let team = Self.teamIdentifier else { return "This copy of \(Brand.name) isn't signed, so it can't set up sudo." }
+            let agent = "\(Brand.id)-agent", module = "pam_\(Brand.id).so.2"
+            let copies = [agent, module, "pam-check"].map { shellQuoted(Self.helpers.appendingPathComponent($0).path) }
+            // Any program running as you can change files in this app, so root runs root-owned copies, and only once
+            // they're signed by the same team as this app.
+            script = """
+                set -e
+                dir=$(mktemp -d)
+                trap 'rm -rf "$dir"' EXIT
+                cp \(copies.joined(separator: " ")) "$dir"
+                for helper in "$dir"/*; do
+                  codesign --verify --strict -R='anchor apple generic and certificate leaf[subject.OU] = "\(team)"' "$helper"
+                done
+                SUDO_USER=\(shellQuoted(NSUserName())) "$dir/\(agent)" enable-sudo --module "$dir/\(module)" --pam-check "$dir/pam-check"
+                """
+        } else {
+            script = "\(Self.installedChecker) disable-sudo"
+        }
+        let reason = on ? "to let sudo wait for your iPhone" : "to stop sudo from waiting for your iPhone"
+        let error = await Self.runAsAdministrator(script, prompt: "\(Brand.name) needs an administrator's password \(reason).")
+        installedCheckerVersion = Self.readInstalledCheckerVersion()
+        refreshStatus()
+        if error == nil {
+            note(on ? "sudo approvals are on" : "sudo approvals are off")
+        } else if let error, !error.isEmpty {
+            note("Couldn't change sudo approvals: \(error)", isError: true)
+        }
+        return error
+    }
+
+    /// The team that signed this app; the helpers have to be signed by it too.
+    private static var teamIdentifier: String? {
+        var code: SecCode?
+        var staticCode: SecStaticCode?
+        var information: CFDictionary?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
+              SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+              SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess
+        else { return nil }
+        return (information as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+
+    /// Runs a shell script as root through macOS's administrator prompt. Returns an error message, "" if you
+    /// cancelled the prompt, or nil once it succeeded.
+    private static func runAsAdministrator(_ script: String, prompt: String) async -> String? {
+        await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", "on run argv",
+                                 "-e", "do shell script (item 1 of argv) with prompt (item 2 of argv) with administrator privileges",
+                                 "-e", "end run", script, prompt]
+            let errors = Pipe()
+            process.standardError = errors
+            process.standardOutput = FileHandle.nullDevice
+            do {
+                try process.run()
+            } catch {
+                return error.localizedDescription
+            }
+            let output = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            process.waitUntilExit()
+            if process.terminationStatus == 0 { return nil }
+            if output.contains("(-128)") { return "" }
+            // osascript reports "0:123: execution error: <the script's error> (1)".
+            var message = output.components(separatedBy: "execution error: ").last ?? output
+            if let code = message.range(of: #" \(-?\d+\)\s*$"#, options: .regularExpression) { message.removeSubrange(code) }
+            return message.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.value
     }
 
     /// Returns an error message, or nil once the password is saved.
@@ -607,4 +715,9 @@ final class AppModel: ObservableObject {
         let snapshot = IOPSCopyPowerSourcesInfo().takeRetainedValue()
         return (IOPSGetProvidingPowerSourceType(snapshot).takeUnretainedValue() as String) == kIOPMACPowerKey
     }
+}
+
+/// Quotes text for /bin/sh.
+private func shellQuoted(_ text: String) -> String {
+    "'" + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
 }

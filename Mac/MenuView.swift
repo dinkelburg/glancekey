@@ -230,6 +230,8 @@ private struct PairingSection: View {
 
 private struct OptionsSection: View {
     @ObservedObject var model: AppModel
+    @State private var isChangingSudo = false
+    @State private var sudoError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -243,31 +245,68 @@ private struct OptionsSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Label {
-                Text(sudoText)
-                    .font(.caption)
-                    .foregroundStyle(sudoIsOutdated ? Color.orange : Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "terminal")
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                Label {
+                    Text(sudoText)
+                        .font(.caption)
+                        .foregroundStyle(sudoIsOutdated ? Color.orange : Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "terminal")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if model.canSetUpSudo {
+                    sudoButton.disabled(isChangingSudo)
+                }
             }
             .padding(.top, 4)
+            if let sudoError {
+                Text(sudoError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .toggleStyle(.switch)
         .controlSize(.small)
     }
 
     private var sudoIsOutdated: Bool {
-        if case .outdated = model.sudoApprovals { return true }
-        return false
+        switch model.sudoApprovals {
+        case .outdated, .otherVersion: true
+        case .off, .on: false
+        }
+    }
+
+    @ViewBuilder private var sudoButton: some View {
+        switch model.sudoApprovals {
+        case .off: Button("Turn on…") { setSudoApprovals(on: true) }
+        case .outdated, .otherVersion: Button("Update…") { setSudoApprovals(on: true) }
+        case .on: Button("Turn off…") { setSudoApprovals(on: false) }
+        }
+    }
+
+    private func setSudoApprovals(on: Bool) {
+        isChangingSudo = true
+        sudoError = nil
+        Task {
+            if let error = await model.setSudoApprovals(on: on), !error.isEmpty {
+                sudoError = error
+            }
+            isChangingSudo = false
+        }
     }
 
     private var sudoText: String {
+        // Builds without the helpers (scripts/build-mac-helpers.sh) can only point at the script.
+        let turnOn = model.canSetUpSudo ? "turn this on" : "run scripts/enable-mac-sudo.sh"
+        let update = model.canSetUpSudo ? "update this" : "run scripts/enable-mac-sudo.sh again"
         switch model.sudoApprovals {
-        case .off: "sudo asks for your password. To approve it with your iPhone instead, run scripts/enable-mac-sudo.sh."
-        case .on: "sudo waits for your iPhone first, then asks for your password."
-        case .outdated(let name): "\(name) can't approve sudo yet. Run scripts/enable-mac-sudo.sh again."
+        case .off: return "sudo asks for your password. To approve it with your iPhone first, \(turnOn)."
+        case .on: return "sudo waits for your iPhone first, then asks for your password."
+        case .outdated(let name): return "\(name) can't approve sudo yet. To add it, \(update)."
+        case .otherVersion: return "sudo still uses another version of \(Brand.name). To use this one, \(update)."
         }
     }
 }

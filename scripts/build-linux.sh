@@ -7,6 +7,6 @@ cd linux
 
 mkdir -p ../build/linux
 for arch in amd64 arm64; do
-  CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w" -o ../build/linux/$APP_ID-agent-$arch .
+  CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o ../build/linux/$APP_ID-agent-$arch .
 done
 ls -1 ../build/linux

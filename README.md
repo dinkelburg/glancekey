@@ -36,9 +36,11 @@ iPhone ──HTTPS──▶ relay (relay.glancekey.com, Cloudflare) ◀──Web
 
 ## Setup
 
+Users install the Mac app and the Linux program from https://www.glancekey.com/download (the docs are at https://www.glancekey.com/docs). From the source:
+
 ### Mac
 1. Accept the Xcode license once: `sudo xcodebuild -license accept`
-2. Run `scripts/build-mac.sh`. Then, in the GlanceKey menu bar item:
+2. Run `scripts/build-mac.sh` (needs Go too: the build also makes the sudo helpers). Then, in the GlanceKey menu bar item:
    - Grant **Accessibility** access.
    - **Save** your login password.
 
@@ -78,7 +80,7 @@ Open GlanceKey (or tap the notification): it shows `sudo pacman -Syu` and approv
 
 Set it up after pairing, and again after pairing another iPhone or updating GlanceKey:
 - **Linux:** `sudo glancekey-agent enable-sudo`. It copies the agent to `/usr/local/libexec/glancekey/`, saves your paired iPhones in `/etc/glancekey/approvers.json` and adds one `pam_exec` line to `/etc/pam.d/sudo` and `/etc/pam.d/polkit-1`. polkit keeps its config in `/usr/lib/pam.d` on Arch and Debian, so it creates the `/etc/pam.d/polkit-1` override from that; run it again after polkit updates. Undo: `sudo glancekey-agent disable-sudo`.
-- **Mac:** `scripts/enable-mac-sudo.sh` (needs Go and the Xcode command line tools). It builds the checker and a small PAM module, tests the module with PAM, then adds it to `/etc/pam.d/sudo_local`, which survives macOS updates. Undo: `scripts/enable-mac-sudo.sh --disable`. If sudo ever stops working, this undoes it without sudo:
+- **Mac:** **Turn on…** next to sudo in the GlanceKey menu (it asks for an administrator password; **Update…** after pairing another iPhone or updating). The app carries the checker, a small PAM module and `pam-check` in `Contents/Helpers` (`scripts/build-mac-helpers.sh`). As root it copies them to a root-owned folder, checks they're signed by the app's own team, tests the module with PAM, then adds it to `/etc/pam.d/sudo_local`, which survives macOS updates. **Turn off…** undoes it. From the source, `scripts/enable-mac-sudo.sh` does the same (`--disable` to undo). If sudo ever stops working, this undoes it without sudo:
   `osascript -e 'do shell script "rm /etc/pam.d/sudo_local" with administrator privileges'`
 
 How it works: PAM runs the checker (`glancekey-agent pam`) as root. It asks the GlanceKey agent or Mac app to show the request on your iPhone, then verifies the iPhone's signature against `approvers.json`. Problems are logged to syslog under `glancekey` (`journalctl -t glancekey`).
@@ -114,6 +116,11 @@ Without the key the relay works as before and only logs that it can't notify. A 
   - After a restart, type your password once yourself.
   - A sleeping computer can't be reached. On the Mac, "Keep Mac awake on power adapter" (on by default) prevents idle sleep while it's charging.
 - **Linux on Omarchy needs `wtype`, `secret-tool` and an unlocked GNOME keyring.** Omarchy ships all three.
+
+## Releases
+
+- **iPhone:** `scripts/upload-testflight.sh` uploads a build to App Store Connect (TestFlight, then App Store review).
+- **Mac and Linux:** raise `MARKETING_VERSION` in `project.yml`, then run `scripts/release.sh`. It archives the Mac app, has Apple notarize it (Developer ID), builds the Linux program, publishes everything with checksums on https://download.glancekey.com (the `site/downloads` Worker, files from `build/downloads`, not in git) and updates the Homebrew tap (`scripts/update-homebrew.sh`, https://github.com/dinkelburg/homebrew-glancekey). Then update the website if anything users see changed.
 
 ## Development
 

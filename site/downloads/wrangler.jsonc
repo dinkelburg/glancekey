@@ -1,0 +1,15 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // The downloads at https://download.glancekey.com: static files only. scripts/release.sh builds them into
+  // build/downloads (not in git) and publishes them, so deploying the website never touches them.
+  "name": "glancekey-downloads",
+  // DinkelWorks, the account that owns glancekey.com.
+  "account_id": "23f8ca529032473a25c2ea485fc5a7ab",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "../../build/downloads" },
+  "routes": [{ "pattern": "download.glancekey.com", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
+  // No request logs, like the website.
+  "observability": { "enabled": false }
+}

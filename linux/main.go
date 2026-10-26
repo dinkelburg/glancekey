@@ -22,7 +22,8 @@ import (
 	"github.com/mdp/qrterminal/v3"
 )
 
-const version = "1.0"
+// version is the release, set by the build scripts from MARKETING_VERSION in project.yml.
+var version = "dev"
 
 // usage is filled in from brand.go; tabwriter lines up the descriptions, however long the command's name is.
 var usage = func() string {

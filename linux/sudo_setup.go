@@ -225,7 +225,7 @@ func findPAMExec() string {
 // load would break sudo completely), and only then adds it to /etc/pam.d/sudo_local, which survives macOS updates.
 func enableMacPAM(module, pamCheck, username string) error {
 	if module == "" || pamCheck == "" {
-		return errors.New("on a Mac, run scripts/enable-mac-sudo.sh, which builds the PAM module")
+		return fmt.Errorf("on a Mac, turn sudo approvals on in the %s menu, or run scripts/enable-mac-sudo.sh", appName)
 	}
 	if sudo, err := os.ReadFile("/etc/pam.d/sudo"); err != nil || !strings.Contains(string(sudo), "sudo_local") {
 		return errors.New("this macOS doesn't read /etc/pam.d/sudo_local (needs macOS 14 or later)")
