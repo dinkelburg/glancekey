@@ -8,7 +8,7 @@ import "strings"
 const (
 	appName      = "GlanceKey"
 	appID        = "glancekey"
-	defaultRelay = "https://glancekey.dinkelworks.nl"
+	defaultRelay = "https://relay.glancekey.com"
 
 	agentCommand = appID + "-agent"
 	urlScheme    = appID

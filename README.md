@@ -3,7 +3,7 @@
 Unlock your Mac and your Linux machine with Face ID on your iPhone, from anywhere, on any network.
 
 ```
-iPhone ──HTTPS──▶ relay (glancekey.dinkelworks.nl, Cloudflare) ◀──WebSocket── Mac app / Linux agent
+iPhone ──HTTPS──▶ relay (relay.glancekey.com, Cloudflare) ◀──WebSocket── Mac app / Linux agent
 ```
 
 - **iPhone app** (`iOS/`): tap **Unlock**, or just open the app, or use Siri, Shortcuts or the Action button. Look at the phone and the computer unlocks.
@@ -16,7 +16,7 @@ iPhone ──HTTPS──▶ relay (glancekey.dinkelworks.nl, Cloudflare) ◀─�
   - On GNOME and KDE it uses `loginctl unlock-session`.
 - **Relay** (`relay/`): Cloudflare Worker with one Durable Object per computer. Computers connect *out* to it, so nothing on your machines listens for connections, and neither device needs to be on the same network.
 - **Core** (`Core/`): the shared Swift protocol and security checks, plus `fake-phone`, a terminal stand-in for the iPhone.
-- **Website** (`site/`): the landing page and privacy policy at https://glancekey.dinkel.works. Static files; `cd site && npx wrangler deploy` publishes them.
+- **Website** (`site/`): the landing page and privacy policy at https://www.glancekey.com. Static files; `cd site && npm run deploy` publishes them, along with the redirects from glancekey.com and glancekey.dinkel.works.
 
 ## How it stays safe
 

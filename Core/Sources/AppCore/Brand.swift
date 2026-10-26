@@ -7,7 +7,7 @@ import Foundation
 public enum Brand {
     public static let name = "GlanceKey"
     public static let id = "glancekey"
-    public static let relay = URL(string: "https://glancekey.dinkelworks.nl")!
+    public static let relay = URL(string: "https://relay.glancekey.com")!
 
     public static let urlScheme = id
 

@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "glancekey-relay",
-  // DinkelWorks, the account that owns dinkelworks.nl.
+  // DinkelWorks, the account that owns glancekey.com and dinkelworks.nl.
   "account_id": "23f8ca529032473a25c2ea485fc5a7ab",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
@@ -9,6 +9,11 @@
     "bindings": [{ "name": "MACHINES", "class_name": "Machine" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Machine"] }],
-  "routes": [{ "pattern": "glancekey.dinkelworks.nl", "custom_domain": true }],
+  // The apps use relay.glancekey.com. Installs and pairings from before 2026-10-26 still use
+  // glancekey.dinkelworks.nl; both reach the same Durable Objects, so they work together.
+  "routes": [
+    { "pattern": "relay.glancekey.com", "custom_domain": true },
+    { "pattern": "glancekey.dinkelworks.nl", "custom_domain": true }
+  ],
   "observability": { "enabled": true }
 }
