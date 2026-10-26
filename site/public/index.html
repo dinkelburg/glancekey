@@ -32,7 +32,7 @@
   <main>
     <section class="hero">
       <div class="wrap hero-grid">
-        <div>
+        <div class="hero-copy">
           <h1>Unlock and approve everything with a glance.</h1>
           <p class="lead">GlanceKey makes Face ID on your iPhone the one way you prove it’s you, on your Mac and on your Linux machines. Unlock the screen, approve sudo, fill in a password prompt: look at your phone and it’s done, wherever you are.</p>
           <div class="cta">
@@ -41,7 +41,25 @@
           </div>
         </div>
 
-        <div class="device" aria-hidden="true">
+        <!-- Plays on a loop: approve sudo on the workstation, then unlock the Mac. -->
+        <div class="stage" aria-hidden="true">
+          <svg class="wires wires-wide" viewBox="0 0 610 610">
+            <path class="wire" d="M300 180C345 180 338 113 383 113"/>
+            <path class="wire" d="M300 333C340 333 330 374 370 374"/>
+            <path class="pulse glow to-mac" pathLength="100" d="M300 180C345 180 338 113 383 113"/>
+            <path class="pulse to-mac" pathLength="100" d="M300 180C345 180 338 113 383 113"/>
+            <path class="pulse glow to-linux" pathLength="100" d="M300 333C340 333 330 374 370 374"/>
+            <path class="pulse to-linux" pathLength="100" d="M300 333C340 333 330 374 370 374"/>
+          </svg>
+          <svg class="wires wires-narrow" viewBox="0 0 340 830">
+            <path class="wire" d="M125 606C125 646 83 636 83 676"/>
+            <path class="wire" d="M215 606C215 646 257 636 257 676"/>
+            <path class="pulse glow to-mac" pathLength="100" d="M125 606C125 646 83 636 83 676"/>
+            <path class="pulse to-mac" pathLength="100" d="M125 606C125 646 83 636 83 676"/>
+            <path class="pulse glow to-linux" pathLength="100" d="M215 606C215 646 257 636 257 676"/>
+            <path class="pulse to-linux" pathLength="100" d="M215 606C215 646 257 636 257 676"/>
+          </svg>
+
           <div class="phone">
             <div class="island"></div>
             <div class="screen">
@@ -50,22 +68,62 @@
                 <div class="machine-head">
                   <span class="machine-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2 19h20"/></svg></span>
                   <span><span class="machine-name">MacBook Pro</span><span class="machine-state">macOS</span></span>
-                  <span class="chip">Locked</span>
+                  <span class="swap chips"><span class="chip mac-before">Locked</span><span class="chip chip-ok mac-after">Unlocked</span></span>
                 </div>
-                <span class="app-btn">Unlock</span>
+                <span class="app-btn unlock">Unlock<span class="tap"></span></span>
               </div>
               <div class="machine">
                 <div class="machine-head">
                   <span class="machine-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></span>
-                  <span><span class="machine-name">workstation</span><span class="machine-state">Waiting for approval</span></span>
+                  <span><span class="machine-name">workstation</span><span class="swap"><span class="machine-state linux-before">Waiting for approval</span><span class="machine-state linux-after">Approved</span></span></span>
                 </div>
                 <p class="cmd">sudo pacman -Syu</p>
-                <div class="app-btn-row">
-                  <span class="app-btn secondary">Deny</span>
-                  <span class="app-btn">Approve</span>
+                <div class="swap">
+                  <div class="app-btn-row linux-before">
+                    <span class="app-btn secondary">Deny</span>
+                    <span class="app-btn approve">Approve<span class="tap"></span></span>
+                  </div>
+                  <p class="done linux-after"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>Approved</p>
                 </div>
               </div>
             </div>
+          </div>
+
+          <div class="mac">
+            <div class="lid">
+              <div class="display">
+                <div class="desktop">
+                  <span class="menubar"></span>
+                  <span class="window"></span>
+                  <span class="dock"></span>
+                </div>
+                <div class="lockscreen mac-before">
+                  <span class="lock-date">Saturday 25 October</span>
+                  <span class="lock-time">9:41</span>
+                  <span class="lock-user"></span>
+                  <span class="lock-field">Enter Password</span>
+                </div>
+              </div>
+            </div>
+            <div class="base"></div>
+            <p class="computer-name">MacBook Pro</p>
+          </div>
+
+          <div class="linux">
+            <div class="monitor">
+              <div class="linux-screen">
+                <div class="waybar"><span>1 2 3</span><span>9:41</span></div>
+                <div class="terminal">
+                  <p><span class="prompt">$</span> sudo pacman -Syu</p>
+                  <p class="term-dim">GlanceKey: approve on your iPhone, or wait 30 s to type your password.</p>
+                  <p class="term-out term-ok">GlanceKey: approved on iPhone.</p>
+                  <p class="term-out">:: Synchronizing package databases...</p>
+                  <p class="term-out">&nbsp;core is up to date</p>
+                </div>
+              </div>
+            </div>
+            <div class="stand"></div>
+            <p class="computer-name">workstation (Linux)</p>
           </div>
         </div>
       </div>

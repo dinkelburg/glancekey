@@ -13,6 +13,13 @@
   --screen-card: #ffffff;
   --screen-text: #0b1424;
   --screen-muted: #687388;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ok: #15803d;
+  --wire: #b4c6e3;
+  --window: #f6f8fc;
+  --window-line: #d5dce8;
+  --metal: #c3cad6;
+  --metal-dark: #a3acbb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -30,6 +37,12 @@
     --screen-card: #182134;
     --screen-text: #edf2fa;
     --screen-muted: #98a3ba;
+    --ok: #4ade80;
+    --wire: #2c3c5c;
+    --window: #1b2333;
+    --window-line: #33405a;
+    --metal: #3a4357;
+    --metal-dark: #2a3142;
   }
 }
 
@@ -46,7 +59,7 @@ body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
-.wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
 
 /* Header */
 .site-header {
@@ -68,10 +81,13 @@ a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outli
 @media (max-width: 680px) { .nav-links { display: none; } }
 
 /* Hero */
-.hero { padding: 88px 0 104px; overflow: hidden; }
-.hero-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 56px; align-items: center; }
-@media (max-width: 920px) { .hero-grid { grid-template-columns: 1fr; gap: 64px; } }
-h1 { font-size: clamp(2.5rem, 5.2vw, 3.8rem); line-height: 1.04; letter-spacing: -0.035em; margin: 0 0 24px; }
+.hero { padding: 80px 0 96px; overflow: hidden; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 48px; align-items: center; }
+@media (max-width: 1179px) {
+  .hero-grid { grid-template-columns: 1fr; gap: 64px; }
+  .hero-copy { max-width: 700px; }
+}
+h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing: -0.035em; margin: 0 0 24px; }
 .lead { font-size: clamp(1.1rem, 2vw, 1.3rem); color: var(--muted); max-width: 33em; margin: 0 0 34px; }
 .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .btn {
@@ -89,20 +105,38 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.8rem); line-height: 1.04; letter-spacing:
 .btn-ghost { background: var(--card); color: var(--text); border: 1px solid var(--line); }
 .btn-ghost:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
 
-/* Phone mock */
-.device { position: relative; z-index: 0; justify-self: center; }
-.device::before {
+/* Hero picture: the phone, wired to a Mac and a Linux machine. Everything has a fixed
+   size so the wires (SVG, in stage pixels) meet the phone's cards and the computers. */
+.stage { position: relative; z-index: 0; justify-self: center; width: 610px; height: 610px; }
+.stage::before {
   content: "";
   position: absolute;
-  inset: -120px;
   z-index: -1;
+  left: -120px;
+  top: -60px;
+  width: 540px;
+  height: 730px;
   border-radius: 50%;
   background: radial-gradient(closest-side, rgb(10 108 255 / 16%), transparent);
 }
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.wires-narrow { display: none; }
+.wire { fill: none; stroke: var(--wire); stroke-width: 2; }
+/* pathLength="100": a dash of 22% of the wire that starts and ends off the wire. */
+.pulse { fill: none; stroke: var(--button); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 22 200; stroke-dashoffset: 30; }
+.pulse.glow { stroke-width: 10; opacity: .3; }
+.mac, .linux { position: absolute; left: 370px; width: 240px; }
+.mac { top: 40px; }
+.linux { top: 296px; }
+.computer-name { margin: 10px 0 0; text-align: center; font-size: .85rem; color: var(--muted); }
+
+/* The phone */
 .phone {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 300px;
-  height: 520px;
+  height: 610px;
   padding: 11px;
   border-radius: 52px;
   background: #0a0e18;
@@ -137,19 +171,144 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.8rem); line-height: 1.04; letter-spacing:
 .machine-icon svg { width: 19px; height: 19px; }
 .machine-name { display: block; font-weight: 600; }
 .machine-state { display: block; font-size: 12.5px; color: var(--screen-muted); }
-.chip { margin-left: auto; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgb(217 119 6 / 15%); color: #c26a05; }
+.chips { margin-left: auto; justify-items: end; }
+.chip { padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgb(217 119 6 / 15%); color: #c26a05; }
+.chip-ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 .cmd {
   margin: 12px 0 0;
   padding: 9px 11px;
   border-radius: 10px;
   background: #0b1424;
   color: #e6ebf5;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 12.5px;
 }
-.app-btn { display: block; margin-top: 12px; padding: 11px; border-radius: 12px; text-align: center; font-weight: 600; background: var(--button); color: #fff; }
+.app-btn { position: relative; display: block; margin-top: 12px; padding: 11px; border-radius: 12px; text-align: center; font-weight: 600; background: var(--button); color: #fff; }
 .app-btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .app-btn-row .secondary { background: rgb(120 135 160 / 16%); color: var(--screen-text); }
+.done {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+  color: var(--ok);
+  font-weight: 600;
+}
+.done svg { width: 15px; height: 15px; }
+/* A finger's tap on a button */
+.tap { position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; background: rgb(255 255 255 / 60%); opacity: 0; }
+/* Two states in one place: the "after" one shows once the computer got the request. */
+.swap { display: grid; }
+.swap > * { grid-area: 1 / 1; }
+.mac-after, .linux-after, .term-out { opacity: 0; }
+
+/* The Mac */
+.lid, .monitor { background: #0a0e18; box-shadow: inset 0 0 0 1.5px #2a3550; }
+.lid { height: 146px; margin: 0 13px; padding: 7px 7px 9px; border-radius: 12px 12px 0 0; }
+.display { position: relative; height: 100%; overflow: hidden; border-radius: 3px; }
+.desktop, .lockscreen {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(90% 80% at 15% 0%, #6db0ff, transparent 70%),
+    radial-gradient(80% 90% at 100% 100%, #0d3fc4, transparent 75%),
+    linear-gradient(160deg, #2a62e0, #0b2a7a);
+}
+.menubar { position: absolute; top: 0; right: 0; left: 0; height: 7px; background: rgb(255 255 255 / 32%); }
+.window {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  width: 128px;
+  height: 80px;
+  border-radius: 4px;
+  background:
+    radial-gradient(circle at 7px 6px, #ff5f57 2px, transparent 2.5px),
+    radial-gradient(circle at 14px 6px, #febc2e 2px, transparent 2.5px),
+    radial-gradient(circle at 21px 6px, #28c840 2px, transparent 2.5px),
+    linear-gradient(var(--window-line), var(--window-line)) 10px 22px / 70px 3px no-repeat,
+    linear-gradient(var(--window-line), var(--window-line)) 10px 31px / 94px 3px no-repeat,
+    linear-gradient(var(--window-line), var(--window-line)) 10px 40px / 54px 3px no-repeat,
+    var(--window);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 30%);
+}
+.dock { position: absolute; bottom: 4px; left: 50%; width: 84px; height: 12px; margin-left: -42px; border-radius: 4px; background: rgb(255 255 255 / 32%); }
+.lockscreen { display: flex; flex-direction: column; align-items: center; padding: 12px 0 10px; color: #fff; }
+.lock-date { font-size: 7.5px; font-weight: 600; opacity: .85; }
+.lock-time { font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+.lock-user { width: 18px; height: 18px; margin-top: auto; border-radius: 50%; background: rgb(255 255 255 / 45%); }
+.lock-field { margin-top: 5px; padding: 1px 9px; border-radius: 999px; background: rgb(255 255 255 / 22%); font-size: 6.5px; }
+.base { position: relative; height: 10px; border-radius: 1px 1px 10px 10px; background: var(--metal); }
+.base::before { content: ""; position: absolute; top: 0; left: 50%; width: 40px; height: 4px; margin-left: -20px; border-radius: 0 0 5px 5px; background: var(--metal-dark); }
+
+/* The Linux machine: Hyprland with a terminal, as on Omarchy */
+.monitor { height: 156px; padding: 7px; border-radius: 10px; }
+.linux-screen { display: flex; flex-direction: column; height: 100%; overflow: hidden; border-radius: 3px; background: #1a1b26; }
+.waybar { display: flex; justify-content: space-between; padding: 2px 7px; color: #565f89; font: 600 7px/1.4 var(--mono); }
+.terminal {
+  flex: 1;
+  margin: 0 5px 5px;
+  padding: 5px 7px;
+  border: 1.5px solid #7aa2f7;
+  border-radius: 4px;
+  color: #a9b1d6;
+  font: 8.5px/1.45 var(--mono);
+}
+.terminal p { margin: 0; }
+.prompt { color: #7aa2f7; }
+.term-dim { color: #787c99; }
+.term-ok { color: #9ece6a; }
+.stand { position: relative; width: 34px; height: 24px; margin: 0 auto 7px; background: var(--metal); }
+.stand::after { content: ""; position: absolute; top: 100%; left: 50%; width: 104px; height: 7px; margin-left: -52px; border-radius: 6px 6px 2px 2px; background: var(--metal); }
+
+/* Small screens: the computers sit under the phone, at two thirds of their size. */
+@media (max-width: 699px) {
+  .stage { width: 340px; height: 830px; }
+  .stage::before { left: -100px; }
+  .phone { left: 20px; }
+  .wires-wide { display: none; }
+  .wires-narrow { display: block; }
+  .mac, .linux { top: 676px; transform: scale(.66); transform-origin: 0 0; }
+  .mac { left: 4px; }
+  .linux { left: 178px; }
+  .computer-name { font-size: 1.2rem; } /* scaled down with the computer */
+}
+@media (max-width: 379px) { .stage { zoom: .88; } }
+
+/* One 10 s loop: tap Approve, the approval travels to the workstation and sudo goes on;
+   then tap Unlock, it travels to the Mac and the Mac unlocks; hold, then start over. */
+@media (prefers-reduced-motion: no-preference) {
+  .stage { --loop: 10s; }
+  .approve .tap { animation: tap-approve var(--loop) infinite; }
+  .approve { animation: press-approve var(--loop) infinite; }
+  .to-linux { animation: to-linux var(--loop) ease-in-out infinite; }
+  .linux-before { animation: linux-before var(--loop) infinite; }
+  .linux-after { animation: linux-after var(--loop) infinite; }
+  .term-out { animation: term-out var(--loop) infinite; }
+  .term-out + .term-out { animation-delay: .4s; }
+  .term-out + .term-out + .term-out { animation-delay: .8s; }
+  .unlock .tap { animation: tap-unlock var(--loop) infinite; }
+  .unlock { animation: press-unlock var(--loop) infinite; }
+  .to-mac { animation: to-mac var(--loop) ease-in-out infinite; }
+  .mac-before { animation: mac-before var(--loop) infinite; }
+  .mac-after { animation: mac-after var(--loop) infinite; }
+  .desktop { animation: desktop var(--loop) infinite; }
+}
+@keyframes tap-approve { 0%, 8% { opacity: 0; transform: scale(.3); } 9% { opacity: .7; } 13%, 100% { opacity: 0; transform: scale(1.3); } }
+@keyframes press-approve { 0%, 9% { transform: none; } 10.5% { transform: scale(.94); } 13%, 100% { transform: none; } }
+@keyframes to-linux { 0%, 13% { stroke-dashoffset: 30; } 24%, 100% { stroke-dashoffset: -108; } }
+@keyframes linux-before { 0%, 24% { opacity: 1; } 27%, 88% { opacity: 0; } 92%, 100% { opacity: 1; } }
+@keyframes linux-after { 0%, 24% { opacity: 0; } 27%, 88% { opacity: 1; } 92%, 100% { opacity: 0; } }
+@keyframes term-out { 0%, 24% { opacity: 0; } 24.5%, 88% { opacity: 1; } 90%, 100% { opacity: 0; } }
+@keyframes tap-unlock { 0%, 40% { opacity: 0; transform: scale(.3); } 41% { opacity: .7; } 45%, 100% { opacity: 0; transform: scale(1.3); } }
+@keyframes press-unlock { 0%, 41% { transform: none; } 42.5% { transform: scale(.97); } 45%, 100% { transform: none; } }
+@keyframes to-mac { 0%, 45% { stroke-dashoffset: 30; } 56%, 100% { stroke-dashoffset: -108; } }
+@keyframes mac-before { 0%, 56% { opacity: 1; } 61%, 88% { opacity: 0; } 92%, 100% { opacity: 1; } }
+@keyframes mac-after { 0%, 56% { opacity: 0; } 59%, 88% { opacity: 1; } 92%, 100% { opacity: 0; } }
+@keyframes desktop { 0%, 56% { transform: scale(1.06); } 61%, 92% { transform: none; } 93%, 100% { transform: scale(1.06); } }
 
 /* Sections */
 section { padding: 96px 0; }
