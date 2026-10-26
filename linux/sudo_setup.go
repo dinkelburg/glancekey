@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -38,6 +40,8 @@ func cmdEnableSudo(args []string) error {
 	flags := flag.NewFlagSet("enable-sudo", flag.ContinueOnError)
 	module := flags.String("module", "", "macOS: the built PAM module (Mac/PAM)")
 	pamCheck := flags.String("pam-check", "", "macOS: the built pam-check tool, to test the module before sudo uses it")
+	approversFile := flags.String("approvers", "", "the iPhones to trust, as the Mac app passes them; otherwise they come from your running agent or Mac app")
+	yes := flags.Bool("yes", false, "trust the paired iPhones without asking")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -45,12 +49,30 @@ func cmdEnableSudo(args []string) error {
 	if err != nil {
 		return err
 	}
-	approvers, err := askApprovers(agentSocketFor(account))
+	var approvers *Approvers
+	if *approversFile != "" {
+		approvers, err = readApproversFile(*approversFile)
+	} else {
+		approvers, err = askApprovers(agentSocketFor(account))
+		if err != nil {
+			err = fmt.Errorf("couldn't get your paired iPhones (%v). Is the %s agent or Mac app running for %s?", err, appName, account.Username)
+		}
+	}
 	if err != nil {
-		return fmt.Errorf("couldn't get your paired iPhones (%v). Is the %s agent or Mac app running for %s?", err, appName, account.Username)
+		return err
 	}
 	if len(approvers.Devices) == 0 {
 		return errors.New("no iPhone is paired yet; pair one first")
+	}
+	// The list comes from a program running as you, which anything else running as you could imitate. So you see
+	// who gets to approve, and which iPhones are new, before root trusts them. The Mac app shows them in its
+	// password prompt instead.
+	previous, _ := loadApprovers(approversPath)
+	fmt.Print(describeApproverChanges(previous, approvers))
+	if *approversFile == "" && !*yes {
+		if err := confirm("Let them approve sudo on " + approvers.MachineName + "?"); err != nil {
+			return err
+		}
 	}
 
 	executable, err := os.Executable()
@@ -144,6 +166,55 @@ func removePAMConfig(files []string) error {
 			return err
 		}
 		fmt.Println("Updated", file)
+	}
+	return nil
+}
+
+func readApproversFile(path string) (*Approvers, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var approvers Approvers
+	if err := json.Unmarshal(data, &approvers); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return &approvers, nil
+}
+
+// describeApproverChanges lists the iPhones that will approve, marking the ones (or keys) approvers.json doesn't
+// have yet, and the ones it loses.
+func describeApproverChanges(previous, next *Approvers) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "These iPhones will approve sudo on %s:\n", next.MachineName)
+	for _, device := range next.Devices {
+		mark := ""
+		if previous != nil {
+			if old := previous.find(device.ID); old == nil || !bytes.Equal(old.PublicKey, device.PublicKey) {
+				mark = "  (new)"
+			}
+		}
+		fmt.Fprintf(&out, "  %s%s\n", oneLine(device.Name, 100), mark)
+	}
+	if previous != nil {
+		for _, device := range previous.Devices {
+			if next.find(device.ID) == nil {
+				fmt.Fprintf(&out, "No longer: %s\n", oneLine(device.Name, 100))
+			}
+		}
+	}
+	return out.String()
+}
+
+// confirm asks a yes/no question in the terminal; anything but yes, or no terminal, is an error.
+func confirm(question string) error {
+	if info, err := os.Stdin.Stat(); err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		return errors.New("run it in a terminal to confirm the iPhones, or pass --yes")
+	}
+	fmt.Printf("%s [y/N] ", question)
+	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	if answer = strings.ToLower(strings.TrimSpace(answer)); answer != "y" && answer != "yes" {
+		return errors.New("cancelled; nothing changed")
 	}
 	return nil
 }

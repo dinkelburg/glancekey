@@ -29,6 +29,8 @@ final class AppModel: ObservableObject {
         case on
         /// A paired iPhone isn't in approvers.json yet.
         case outdated(String)
+        /// An iPhone you removed is still in approvers.json, so it can still approve sudo.
+        case stale(String)
         /// sudo still runs the checker of another version of this app.
         case otherVersion
     }
@@ -52,6 +54,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var devices: [PairedDevice]
     @Published private(set) var relayState = RelayConnection.State.offline("Starting…")
     @Published private(set) var hasPassword = PasswordStore.exists
+    /// The iPhones listed next to the saved password (see `PasswordStore`); nil while there's no such list.
+    /// A paired iPhone missing from it can't unlock or approve anything until it's paired again.
+    @Published private(set) var trustedDeviceIds = AppModel.readTrustedDeviceIds()
     @Published private(set) var hasEventAccess = ScreenController.hasEventAccess
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published private(set) var invite: PairingInvite?
@@ -130,6 +135,7 @@ final class AppModel: ObservableObject {
         pathMonitor.start(queue: .main)
 
         setUpLoginItemOnFirstLaunch()
+        Task { await moveTrustedDevicesIntoKeychain() }
         refreshStatus()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshStatus() }
@@ -155,7 +161,8 @@ final class AppModel: ObservableObject {
         let loginItem = SMAppService.mainApp.status == .enabled
         if loginItem != launchAtLogin { launchAtLogin = loginItem }
         if let expires = pairingExpiresAt, expires < Date() { cancelPairing() }
-        let sudo = Self.readSudoApprovals(devices: devices, checkerVersion: installedCheckerVersion)
+        let trusted = devices.filter { trustedDeviceIds?.contains($0.id) ?? true }
+        let sudo = Self.readSudoApprovals(devices: trusted, checkerVersion: installedCheckerVersion)
         if sudo != sudoApprovals { sudoApprovals = sudo }
         updateSleepAssertion()
     }
@@ -166,6 +173,9 @@ final class AppModel: ObservableObject {
         else { return .off }
         if let missing = devices.first(where: { device in !approvers.devices.contains { $0.id == device.id } }) {
             return .outdated(missing.name)
+        }
+        if let removed = approvers.devices.first(where: { approver in !devices.contains { $0.id == approver.id } }) {
+            return .stale(removed.name)
         }
         if let checkerVersion, checkerVersion != Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
             return .otherVersion
@@ -202,12 +212,21 @@ final class AppModel: ObservableObject {
     /// the password. Runs as root after macOS asks for an administrator's password. Returns an error message, or nil.
     func setSudoApprovals(on: Bool) async -> String? {
         let script: String
+        let reason: String
         if on {
             guard let team = Self.teamIdentifier else { return "This copy of \(Brand.name) isn't signed, so it can't set up sudo." }
+            let approvers: Approvers
+            do {
+                approvers = try await trustedApprovers()
+            } catch {
+                return (error as? RequestError)?.message ?? error.localizedDescription
+            }
+            guard let json = try? JSONEncoder().encode(approvers) else { return "Couldn't list the paired iPhones." }
             let agent = "\(Brand.id)-agent", module = "pam_\(Brand.id).so.2"
             let copies = [agent, module, "pam-check"].map { shellQuoted(Self.helpers.appendingPathComponent($0).path) }
             // Any program running as you can change files in this app, so root runs root-owned copies, and only once
-            // they're signed by the same team as this app.
+            // they're signed by the same team as this app. The iPhones come from here rather than over the control
+            // socket, which another program could have taken over, and the password prompt names them.
             script = """
                 set -e
                 dir=$(mktemp -d)
@@ -216,12 +235,16 @@ final class AppModel: ObservableObject {
                 for helper in "$dir"/*; do
                   codesign --verify --strict -R='anchor apple generic and certificate leaf[subject.OU] = "\(team)"' "$helper"
                 done
-                SUDO_USER=\(shellQuoted(NSUserName())) "$dir/\(agent)" enable-sudo --module "$dir/\(module)" --pam-check "$dir/pam-check"
+                printf '%s' \(shellQuoted(String(decoding: json, as: UTF8.self))) > "$dir/approvers.json"
+                SUDO_USER=\(shellQuoted(NSUserName())) "$dir/\(agent)" enable-sudo --approvers "$dir/approvers.json" \\
+                  --module "$dir/\(module)" --pam-check "$dir/pam-check"
                 """
+            let names = ListFormatter.localizedString(byJoining: approvers.devices.map(\.name))
+            reason = "to let sudo wait for \(names)"
         } else {
             script = "\(Self.installedChecker) disable-sudo"
+            reason = "to stop sudo from waiting for your iPhone"
         }
-        let reason = on ? "to let sudo wait for your iPhone" : "to stop sudo from waiting for your iPhone"
         let error = await Self.runAsAdministrator(script, prompt: "\(Brand.name) needs an administrator's password \(reason).")
         installedCheckerVersion = Self.readInstalledCheckerVersion()
         refreshStatus()
@@ -279,12 +302,16 @@ final class AppModel: ObservableObject {
         if await PasswordStore.check(password) == .wrong {
             return "That isn't the login password for \(NSUserName())."
         }
+        // Keeps the iPhones listed with the previous password. The first time, they're the ones paired now, which
+        // you see in this menu.
+        let trusted = PasswordStore.load()?.trusted ?? devices.map(PasswordStore.TrustedDevice.init)
         do {
-            try PasswordStore.save(password)
+            try PasswordStore.save(password, trusting: trusted)
         } catch {
             return "Couldn't save it to the keychain (\(error.localizedDescription))."
         }
         hasPassword = true
+        trustedDeviceIds = Self.readTrustedDeviceIds()
         note("Saved your Mac password")
         return nil
     }
@@ -292,7 +319,67 @@ final class AppModel: ObservableObject {
     func forgetPassword() {
         PasswordStore.delete()
         hasPassword = false
+        trustedDeviceIds = nil
         note("Removed the saved Mac password")
+    }
+
+    private static func readTrustedDeviceIds() -> Set<String>? {
+        PasswordStore.load()?.trusted.map { Set($0.map(\.id)) }
+    }
+
+    /// Changes the iPhones listed next to the saved password. An item saved by an older version starts from the
+    /// iPhones paired now.
+    private func updateTrustedDevices(_ change: (inout [PasswordStore.TrustedDevice]) -> Void) {
+        guard let saved = PasswordStore.load() else { return }
+        var trusted = saved.trusted ?? devices.map(PasswordStore.TrustedDevice.init)
+        change(&trusted)
+        do {
+            try PasswordStore.save(saved.password, trusting: trusted)
+        } catch {
+            note("Couldn't update the keychain: \(error.localizedDescription)", isError: true)
+        }
+        trustedDeviceIds = Self.readTrustedDeviceIds()
+    }
+
+    /// After an update from a version that kept the paired iPhones only in UserDefaults: lists them next to the
+    /// password, once macOS confirms the password (so it's the item this app saved).
+    private func moveTrustedDevicesIntoKeychain() async {
+        guard let saved = PasswordStore.load(), saved.trusted == nil, await PasswordStore.check(saved.password) == .correct
+        else { return }
+        updateTrustedDevices { _ in }
+    }
+
+    /// The saved password and the iPhones listed next to it, once macOS confirms the password.
+    private func confirmedPassword() async throws -> (password: String, trusted: [PasswordStore.TrustedDevice]) {
+        guard let saved = PasswordStore.load() else {
+            throw RequestError(status: 409, message: "Save your Mac password in \(Brand.name) on the Mac first.")
+        }
+        switch await PasswordStore.check(saved.password) {
+        case .correct:
+            return (saved.password, saved.trusted ?? devices.map(PasswordStore.TrustedDevice.init))
+        case .wrong:
+            throw RequestError(status: 409, message: "The password saved in \(Brand.name) is out of date. Update it on your Mac.")
+        case .unknown:
+            throw RequestError(status: 409, message: "Couldn't check the password saved in \(Brand.name) with macOS. Try again.")
+        }
+    }
+
+    /// The saved password, if `device` may use it.
+    private func password(for device: PairedDevice) async throws -> String {
+        let (password, trusted) = try await confirmedPassword()
+        guard trusted.contains(where: { $0.matches(device) }) else {
+            throw RequestError(status: 403, message: "\(device.name) isn't confirmed on this Mac. Remove it in \(Brand.name) on the Mac and pair again.")
+        }
+        return password
+    }
+
+    /// The paired iPhones that may approve sudo: the ones listed next to the saved password.
+    private func trustedApprovers() async throws -> Approvers {
+        let trusted = try await confirmedPassword().trusted
+        let approvers = devices.filter { device in trusted.contains { $0.matches(device) } }
+        guard !approvers.isEmpty else { throw RequestError(status: 409, message: "No paired iPhone is confirmed on this Mac yet.") }
+        return Approvers(machineId: machineId, machineName: machineName,
+                         devices: approvers.map { .init(id: $0.id, name: $0.name, publicKey: $0.publicKey) })
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -329,6 +416,7 @@ final class AppModel: ObservableObject {
     }
 
     func remove(_ device: PairedDevice) {
+        updateTrustedDevices { $0.removeAll { $0.id == device.id } }
         devices.removeAll { $0.id == device.id }
         saveDevices()
         note("Removed \(device.name)")
@@ -361,6 +449,10 @@ final class AppModel: ObservableObject {
 
     private func pair(_ request: PairRequest) throws -> (status: Int, body: Data) {
         let device = try authenticator.completePairing(request)
+        updateTrustedDevices { trusted in
+            trusted.removeAll { $0.id == device.id }
+            trusted.append(.init(device))
+        }
         devices.removeAll { $0.id == device.id }
         devices.append(device)
         saveDevices()
@@ -409,7 +501,7 @@ final class AppModel: ObservableObject {
                 response = CommandResponse(ok: locked, locked: locked, message: locked ? "Locked" : "Couldn't lock the Mac")
             }
         case .unlock:
-            response = try await unlock()
+            response = try await unlock(by: device)
         case .approve, .deny:
             throw RequestError(status: 400, message: "Bad request.")
         }
@@ -421,7 +513,7 @@ final class AppModel: ObservableObject {
         return respond(response)
     }
 
-    private func unlock() async throws -> CommandResponse {
+    private func unlock(by device: PairedDevice) async throws -> CommandResponse {
         guard ScreenController.isLocked else {
             ScreenController.wakeDisplay()
             return CommandResponse(ok: true, locked: false, message: "Already unlocked")
@@ -429,12 +521,7 @@ final class AppModel: ObservableObject {
         guard ScreenController.hasEventAccess else {
             throw RequestError(status: 409, message: "\(Brand.name) on your Mac needs Accessibility permission.")
         }
-        guard let password = PasswordStore.load() else {
-            throw RequestError(status: 409, message: "Save your Mac password in \(Brand.name) on the Mac first.")
-        }
-        if await PasswordStore.check(password) == .wrong {
-            throw RequestError(status: 409, message: "The password saved in \(Brand.name) is out of date. Update it on your Mac.")
-        }
+        let password = try await password(for: device)
         let unlocked = await ScreenController.unlock(password: password)
         return CommandResponse(ok: unlocked, locked: !unlocked, message: unlocked ? "Unlocked" : "Typed the password, but the Mac is still locked")
     }
@@ -489,9 +576,11 @@ final class AppModel: ObservableObject {
         else { return }
         switch request.command {
         case "approvers":
-            let approvers = Approvers(machineId: machineId, machineName: machineName,
-                                      devices: devices.map { .init(id: $0.id, name: $0.name, publicKey: $0.publicKey) })
-            connection.send(ControlResponse(approvers: approvers))
+            do {
+                connection.send(ControlResponse(approvers: try await trustedApprovers()))
+            } catch {
+                connection.send(ControlResponse(error: (error as? RequestError)?.message ?? error.localizedDescription))
+            }
         case "approval":
             await serveApproval(request.approval, connection: connection, lines: lines)
         default:
@@ -611,6 +700,11 @@ final class AppModel: ObservableObject {
         }
         guard dialogRequest == nil, askedDialog.map({ !CFEqual($0, found.window) }) ?? true, relayState == .connected else { return }
         askedDialog = found.window
+        if found.asksForAppSecret {
+            // Another program wants the saved password (or the relay secret) itself; an approval would hand it over.
+            note("A program asked the keychain for \(Brand.name)'s saved password. Deny it unless you started that.", isError: true)
+            return
+        }
         let approval = Approval(id: randomToken(byteCount: 16), title: found.title, detail: found.detail, nonce: randomToken(), expiresIn: 120)
         dialogRequest = DialogRequest(dialog: found, approval: approval, deadline: Date().addingTimeInterval(120))
         note("Waiting for your iPhone: \(found.title)")
@@ -637,12 +731,7 @@ final class AppModel: ObservableObject {
             // A dialog that's still open (wrong password, say) doesn't ask again.
             askedDialog = PasswordDialog.find()?.window
         }
-        guard let password = PasswordStore.load() else {
-            throw RequestError(status: 409, message: "Save your Mac password in \(Brand.name) on the Mac first.")
-        }
-        if await PasswordStore.check(password) == .wrong {
-            throw RequestError(status: 409, message: "The password saved in \(Brand.name) is out of date. Update it on your Mac.")
-        }
+        let password = try await password(for: device)
         markUsed(device.id)
         switch await PasswordDialog.fill(dialog.dialog, password: password) {
         case .filled:

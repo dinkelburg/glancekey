@@ -44,7 +44,7 @@
     <h2>The relay</h2>
     <p>Your iPhone and your computers talk through a relay at relay.glancekey.com, which runs on Cloudflare. All traffic to it is encrypted.</p>
     <ul>
-      <li><strong>What passes through:</strong> the messages between your iPhone and your computers, such as whether a computer is locked, unlock commands, and approval requests, which include the command or dialog that’s waiting for you. If you turn notifications on, also your iPhone’s notification address and the name of the computer that’s waiting. Every action is signed by your iPhone and checked by your computer, so the relay can’t change or forge them.</li>
+      <li><strong>What passes through:</strong> the messages between your iPhone and your computers, such as whether a computer is locked, unlock commands, and approval requests, which include the command or dialog that’s waiting for you. If you turn notifications on, also your iPhone’s notification address and the name of the computer that’s waiting. Unlocking and approving are signed by your iPhone and checked by your computer, so the relay can’t fake or change them. It could decline a request or stop passing messages on.</li>
       <li><strong>What it stores:</strong> one thing per computer, a one-way fingerprint of the secret the computer uses to claim its place on the relay. The messages themselves aren’t stored.</li>
       <li><strong>Cloudflare:</strong> like any network, Cloudflare processes connection data such as IP addresses to deliver traffic, and keeps the relay’s request logs for a few days for troubleshooting. See <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare’s privacy policy</a>.</li>
     </ul>

@@ -1,3 +1,4 @@
+import AppCore
 import AppKit
 import ApplicationServices
 import Security
@@ -13,8 +14,13 @@ enum PasswordDialog {
         let window: AXUIElement
         let title: String
         let detail: String
+        /// A keychain prompt for one of this app's own items: another program asking for the saved password.
+        let asksForAppSecret: Bool
 
-        func isSame(as other: Found) -> Bool { pid == other.pid && CFEqual(window, other.window) }
+        /// Still the dialog you were asked about: the same window, saying the same.
+        func isSame(as other: Found) -> Bool {
+            pid == other.pid && CFEqual(window, other.window) && title == other.title && detail == other.detail
+        }
     }
 
     enum FillResult: Equatable {
@@ -41,34 +47,66 @@ enum PasswordDialog {
         })
         for pid in pids where isGenuine(pid) {
             guard let window = dialogWindow(pid: pid) else { continue }
-            // E.g. "1Password is trying to unlock." and "Touch ID or enter your password to continue with 1Password."
-            let texts = window.all { $0.role == kAXStaticTextRole }
-                .compactMap { $0.string(kAXValueAttribute) }
-                .map { $0.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-            return Found(pid: pid, window: window, title: String((texts.first ?? "A password dialog").prefix(160)),
-                         detail: String((texts.count > 1 ? texts.last! : "Asks for your Mac password").prefix(160)))
+            return describe(window, pid: pid)
         }
         return nil
     }
 
+    private static func describe(_ window: AXUIElement, pid: pid_t) -> Found {
+        let texts = texts(in: window)
+        return Found(pid: pid, window: window, title: title(of: texts),
+                     detail: String((texts.count > 1 ? texts.last! : "Asks for your Mac password").prefix(160)),
+                     asksForAppSecret: texts.contains { text in appSecretNames.contains { text.contains($0) } })
+    }
+
+    /// How this app's keychain items show up in a keychain prompt: by label, or by service.
+    private static let appSecretNames = ["\(Brand.name):", Brand.keychainService("")]
+
+    /// The dialog's lines, e.g. "1Password is trying to unlock." and "Touch ID or enter your password to continue
+    /// with 1Password." The program asking can choose some of the words, so invisible characters that could make
+    /// them read differently (right-to-left overrides, zero-width spaces) show as "�".
+    private static func texts(in window: AXUIElement) -> [String] {
+        window.all { $0.role == kAXStaticTextRole }
+            .compactMap { $0.string(kAXValueAttribute) }
+            .map { visible($0).components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func visible(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            scalars.append(scalar.properties.generalCategory == .format ? "\u{FFFD}" : scalar)
+        }
+        return String(scalars)
+    }
+
+    private static func title(of texts: [String]) -> String {
+        String((texts.first ?? "A password dialog").prefix(160))
+    }
+
     /// Types the password into the dialog and submits it. Returns once the dialog is gone or clearly isn't.
     static func fill(_ dialog: Found, password: String) async -> FillResult {
-        guard isGenuine(dialog.pid), let window = dialogWindow(pid: dialog.pid), CFEqual(window, dialog.window) else { return .closed }
+        guard !dialog.asksForAppSecret, let window = approvedWindow(dialog), describe(window, pid: dialog.pid).isSame(as: dialog)
+        else { return .closed }
         var field = window.all(where: \.isSecureField).first
         if field == nil, let button = mainButton(in: window) {
             // A Touch ID dialog: "Use Password…" shows the password field.
             AXUIElementPerformAction(button, kAXPressAction as CFString)
             for _ in 0..<20 where field == nil {
                 await pause(0.1)
-                field = dialogWindow(pid: dialog.pid)?.all(where: \.isSecureField).first
+                field = window.all(where: \.isSecureField).first ?? approvedWindow(dialog)?.all(where: \.isSecureField).first
             }
         }
-        guard let field else { return .failed("Couldn't find the password field in the dialog.") }
+        guard let field, let fieldWindow = field.element(kAXWindowAttribute) ?? approvedWindow(dialog) else {
+            return .failed("Couldn't find the password field in the dialog.")
+        }
+        // Checked again right before typing: the process could have exited, and another taken its number.
+        guard approvedWindow(dialog) != nil else { return .closed }
         guard await enter(password, into: field, pid: dialog.pid) else {
             return .failed("The dialog didn't take the password. Type it on your Mac instead.")
         }
-        if let button = dialogWindow(pid: dialog.pid).flatMap(mainButton(in:)) {
+        // Submits the window the password went into, not whichever dialog that process shows now.
+        if let button = mainButton(in: fieldWindow) {
             AXUIElementPerformAction(button, kAXPressAction as CFString) // OK, or Allow Access
         } else {
             press(Key.return, to: dialog.pid)
@@ -78,6 +116,14 @@ enum PasswordDialog {
             guard let window = dialogWindow(pid: dialog.pid), !window.all(where: \.isSecureField).isEmpty else { return .filled }
         }
         return .failed("Typed your password, but the dialog is still open.")
+    }
+
+    /// The dialog's window if it still is the one you approved: an Apple-signed process (the same one), and a
+    /// window with the same first line. After "Use Password…" the rest of a Touch ID dialog's text changes.
+    private static func approvedWindow(_ dialog: Found) -> AXUIElement? {
+        guard isGenuine(dialog.pid), let window = dialogWindow(pid: dialog.pid), title(of: texts(in: window)) == dialog.title
+        else { return nil }
+        return window
     }
 
     /// Presses Cancel (or Don't Allow), for when you deny on the iPhone.

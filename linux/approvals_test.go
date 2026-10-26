@@ -350,16 +350,25 @@ func TestLoadApproversRejectsUnsafeFiles(t *testing.T) {
 }
 
 func TestDescribeRequest(t *testing.T) {
-	title, detail := describeRequest("sudo", "ruben", "/dev/ttys003", []string{"sudo", "pacman", "-S", "a b", "x\ny"})
+	title, detail, _ := describeRequest("sudo", "ruben", "/dev/ttys003", []string{"sudo", "pacman", "-S", "a b", "x\ny"})
 	if title != `sudo pacman -S "a b" "x\ny"` || detail != "ruben on ttys003" {
 		t.Fatalf("got %q / %q", title, detail)
 	}
-	if title, _ := describeRequest("polkit-1", "ruben", "", []string{"/usr/lib/polkit-1/polkit-agent-helper-1", "ruben"}); title != "Administrator access (system dialog)" {
+	if title, _, _ := describeRequest("polkit-1", "ruben", "", []string{"/usr/lib/polkit-1/polkit-agent-helper-1", "ruben"}); title != "Administrator access (system dialog)" {
 		t.Fatalf("polkit: %q", title)
 	}
-	long, _ := describeRequest("sudo", "ruben", "", []string{"sudo", strings.Repeat("x", 500)})
-	if n := len([]rune(long)); n != maxTitleLength || strings.ContainsAny(long, "\n\r") {
-		t.Fatalf("long title has %d characters", n)
+	// Invisible characters could make the iPhone show something else than what runs, so they're escaped:
+	// a right-to-left override, a zero-width space and a no-break space that looks like a word break.
+	sneaky, _, _ := describeRequest("sudo", "ruben", "", []string{"sudo", "rm", "safe\u202etxt.sh", "a\u200bb", "x\u00a0y", "café"})
+	if sneaky != `sudo rm "safe\u202etxt.sh" "a\u200bb" "x\u00a0y" café` {
+		t.Fatalf("got %q", sneaky)
+	}
+	fits := "sudo " + strings.Repeat("x", maxTitleLength-len("sudo "))
+	if title, _, err := describeRequest("sudo", "ruben", "", strings.Fields(fits)); err != nil || title != fits {
+		t.Fatalf("a title of exactly %d characters: %q, %v", maxTitleLength, title, err)
+	}
+	if _, _, err := describeRequest("sudo", "ruben", "", []string{"sudo", strings.Repeat("x", 500)}); err != errTitleTooLong {
+		t.Fatalf("a command too long to show in full: %v", err)
 	}
 	if got := oneLine("a\nb c", 10); got != "a b c" {
 		t.Fatalf("oneLine: %q", got)
@@ -470,7 +479,7 @@ func TestWithoutEmulator(t *testing.T) {
 	if !sudoWithoutPrompt(args) {
 		t.Fatalf("-S not seen in %q", args)
 	}
-	if title, _ := describeRequest("sudo", "ruben", "", args); title != "sudo -k -S id" {
+	if title, _, _ := describeRequest("sudo", "ruben", "", args); title != "sudo -k -S id" {
 		t.Fatalf("title %q", title)
 	}
 	if got := withoutEmulator([]string{"sudo", "id"}); len(got) != 2 {
@@ -506,4 +515,26 @@ func TestCheckerExitsWithParent(t *testing.T) {
 	shell.Process.Kill()
 	shell.Wait()
 	waitUntil(t, func() bool { return syscall.Kill(child, 0) != nil })
+}
+
+func TestDescribeApproverChanges(t *testing.T) {
+	phone := Approver{ID: "a", Name: "Ruben's iPhone", PublicKey: []byte{1}}
+	old := Approver{ID: "b", Name: "Old iPhone", PublicKey: []byte{2}}
+	previous := &Approvers{MachineName: "omarchy", Devices: []Approver{phone, old}}
+
+	// A second "Ruben's iPhone" is new; so is a known id with another key.
+	impostor := Approver{ID: "c", Name: "Ruben's iPhone", PublicKey: []byte{3}}
+	swapped := Approver{ID: "a", Name: "Ruben's iPhone", PublicKey: []byte{4}}
+	got := describeApproverChanges(previous, &Approvers{MachineName: "omarchy", Devices: []Approver{phone, impostor}})
+	want := "These iPhones will approve sudo on omarchy:\n  Ruben's iPhone\n  Ruben's iPhone  (new)\nNo longer: Old iPhone\n"
+	if got != want {
+		t.Fatalf("got\n%s", got)
+	}
+	if got := describeApproverChanges(previous, &Approvers{MachineName: "omarchy", Devices: []Approver{swapped}}); !strings.Contains(got, "Ruben's iPhone  (new)") {
+		t.Fatalf("a new key for a known iPhone isn't marked:\n%s", got)
+	}
+	// The first setup has nothing to compare with.
+	if got := describeApproverChanges(nil, &Approvers{MachineName: "omarchy", Devices: []Approver{phone}}); strings.Contains(got, "new") {
+		t.Fatalf("first setup:\n%s", got)
+	}
 }

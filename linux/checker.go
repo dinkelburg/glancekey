@@ -17,6 +17,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -30,7 +31,8 @@ const (
 	approversPath       = "/etc/" + appID + "/approvers.json"
 	checkerInstallPath  = "/usr/local/libexec/" + appID + "/" + agentCommand
 	defaultApprovalWait = 30 * time.Second
-	maxTitleLength      = 160
+	// The agent and the Mac app take up to 300; the iPhone shows all of it.
+	maxTitleLength = 300
 )
 
 func runChecker(args []string) int {
@@ -85,7 +87,11 @@ func runChecker(args []string) int {
 	if strings.HasPrefix(service, "sudo") && sudoWithoutPrompt(args) {
 		return 1
 	}
-	title, detail := describeRequest(service, username, os.Getenv("PAM_TTY"), args)
+	title, detail, err := describeRequest(service, username, os.Getenv("PAM_TTY"), args)
+	if err != nil {
+		tell("%v", err)
+		return 1
+	}
 	approval := Approval{ID: randomToken(12), Nonce: randomToken(32), Title: title, Detail: detail, ExpiresIn: int(*wait / time.Second)}
 
 	path := *socket
@@ -352,13 +358,17 @@ func sudoLongOptionTakesValue(option string) bool {
 	return false
 }
 
-// describeRequest makes the one-line title and detail the iPhone shows (and signs).
-func describeRequest(service, username, tty string, args []string) (title, detail string) {
+var errTitleTooLong = errors.New("the command is too long to show on your iPhone in full; type your password.")
+
+// describeRequest makes the one-line title and detail the iPhone shows (and signs). The title shows the whole
+// command or nothing: a command that doesn't fit gets the password prompt instead, rather than an approval for
+// a beginning that could hide what follows.
+func describeRequest(service, username, tty string, args []string) (title, detail string, err error) {
 	switch {
 	case strings.HasPrefix(service, "sudo") && len(args) > 0:
 		words := []string{"sudo"}
 		for _, arg := range args[1:] {
-			if arg == "" || strings.IndexFunc(arg, func(r rune) bool { return r <= ' ' || strings.ContainsRune(`'"\`, r) }) >= 0 {
+			if arg == "" || strings.IndexFunc(arg, needsQuotes) >= 0 {
 				arg = strconv.Quote(arg)
 			}
 			words = append(words, arg)
@@ -375,7 +385,16 @@ func describeRequest(service, username, tty string, args []string) (title, detai
 	if tty = strings.TrimPrefix(tty, "/dev/"); tty != "" {
 		detail += " on " + tty
 	}
-	return oneLine(title, maxTitleLength), oneLine(detail, 80)
+	if utf8.RuneCountInString(title) > maxTitleLength {
+		return "", "", errTitleTooLong
+	}
+	return oneLine(title, maxTitleLength), oneLine(detail, 80), nil
+}
+
+// needsQuotes: characters that would make an argument look like something else, from spaces to invisible ones
+// such as right-to-left overrides and zero-width spaces. strconv.Quote shows those as escapes like \u202e.
+func needsQuotes(r rune) bool {
+	return r <= ' ' || strings.ContainsRune(`'"\`, r) || unicode.IsSpace(r) || !unicode.IsGraphic(r)
 }
 
 // oneLine replaces control characters and line separators with spaces and shortens to limit characters.

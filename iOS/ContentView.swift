@@ -28,7 +28,22 @@ struct ContentView: View {
             .onChange(of: model.pairingResult) { _, result in
                 if result?.success == true { showingAddComputer = false }
             }
+            .alert("Pair with \(model.pendingInvite?.machineName ?? "this computer")?", isPresented: isConfirmingPairing,
+                   presenting: model.pendingInvite) { invite in
+                Button("Pair") { Task { await model.pair(invite) } }
+                Button("Cancel", role: .cancel) {}
+            } message: { invite in
+                if let paired = model.pairedMachine(replacedBy: invite) {
+                    Text("This iPhone is already paired with \(paired.machineName). Pairing again replaces that pairing.")
+                } else {
+                    Text("Only pair if you just clicked Pair iPhone on that computer.")
+                }
+            }
         }
+    }
+
+    private var isConfirmingPairing: Binding<Bool> {
+        Binding(get: { model.pendingInvite != nil }, set: { if !$0 { model.pendingInvite = nil } })
     }
 
     private var machineList: some View {

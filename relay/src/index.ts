@@ -34,6 +34,9 @@ interface Pending {
 
 const MACHINE_ID = /^[A-Za-z0-9-]{8,64}$/;
 const MAX_BODY = 16 * 1024;
+/// Requests a machine may have waiting for its computer at once. An iPhone has one or two; this keeps anyone who
+/// knows a machine id from piling up more.
+const MAX_PENDING = 32;
 const ANSWER_TIMEOUT_MS = 25_000;
 const PUSH_TOKEN = /^[0-9A-Fa-f]{64,200}$/;
 const MAX_PUSH_TOKENS = 10;
@@ -101,8 +104,9 @@ export class Machine extends DurableObject<Env> {
 
   private async forward(request: Request, url: URL): Promise<Response> {
     if (request.method !== "POST") return json(405, { error: "Use POST." });
-    const body = await request.text();
-    if (body.length > MAX_BODY) return json(413, { error: "Request too large." });
+    const body = await readText(request, MAX_BODY);
+    if (body === undefined) return json(413, { error: "Request too large." });
+    if (this.pending.size >= MAX_PENDING) return json(429, { error: "Too many requests are waiting for your computer. Try again." });
 
     const agent = this.currentAgent();
     if (!agent) {
@@ -263,6 +267,32 @@ async function providerToken(pem: string, keyId: string, teamId: string): Promis
 
 function base64URL(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/// The body as text, reading no more than `limit` bytes; undefined if it's larger.
+async function readText(request: Request, limit: number): Promise<string | undefined> {
+  if (Number(request.headers.get("Content-Length") ?? 0) > limit) return undefined;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 function json(status: number, value: unknown): Response {

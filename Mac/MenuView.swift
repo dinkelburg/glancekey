@@ -170,10 +170,18 @@ private struct DevicesSection: View {
                     Image(systemName: "iphone")
                     VStack(alignment: .leading, spacing: 1) {
                         Text(device.name)
-                        Text(device.lastUsedAt.map { "Last used \($0.formatted(.relative(presentation: .named)))" }
-                            ?? "Paired \(device.pairedAt.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if let trusted = model.trustedDeviceIds, !trusted.contains(device.id) {
+                            // Not paired through this app: something else added it. See PasswordStore.
+                            Text("Not confirmed on this Mac, so it can't unlock or approve. Remove it, and pair again if it's yours.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text(device.lastUsedAt.map { "Last used \($0.formatted(.relative(presentation: .named)))" }
+                                ?? "Paired \(device.pairedAt.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     Button {
@@ -274,7 +282,7 @@ private struct OptionsSection: View {
 
     private var sudoIsOutdated: Bool {
         switch model.sudoApprovals {
-        case .outdated, .otherVersion: true
+        case .outdated, .stale, .otherVersion: true
         case .off, .on: false
         }
     }
@@ -282,7 +290,7 @@ private struct OptionsSection: View {
     @ViewBuilder private var sudoButton: some View {
         switch model.sudoApprovals {
         case .off: Button("Turn on…") { setSudoApprovals(on: true) }
-        case .outdated, .otherVersion: Button("Update…") { setSudoApprovals(on: true) }
+        case .outdated, .stale, .otherVersion: Button("Update…") { setSudoApprovals(on: true) }
         case .on: Button("Turn off…") { setSudoApprovals(on: false) }
         }
     }
@@ -306,6 +314,7 @@ private struct OptionsSection: View {
         case .off: return "sudo asks for your password. To approve it with your iPhone first, \(turnOn)."
         case .on: return "sudo waits for your iPhone first, then asks for your password."
         case .outdated(let name): return "\(name) can't approve sudo yet. To add it, \(update)."
+        case .stale(let name): return "\(name) isn't paired anymore but can still approve sudo. To take it out, \(update)."
         case .otherVersion: return "sudo still uses another version of \(Brand.name). To use this one, \(update)."
         }
     }

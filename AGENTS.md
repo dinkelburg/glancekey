@@ -20,6 +20,8 @@ The app's name is defined only in `Core/Sources/AppCore/Brand.swift`, `linux/bra
 
 Approval trust model: for sudo/polkit the checker (root) creates the nonce and verifies the signature against root-owned `approvers.json`; the agent, Mac app and relay only carry messages. Keep it that way: nothing user-level may decide a sudo approval. Mac password dialogs are the exception by design: the Mac app verifies those itself (same trust as unlock, since it holds the password anyway), types only into Apple-signed coreautha/SecurityAgent (code-signature check) and only via `postToPid`. The iPhone never approves without a tap on Approve.
 
+On the Mac, the iPhones that may unlock, fill dialogs or become sudo approvers are the ones listed in the password's own keychain item (`PasswordStore`), not the UserDefaults list: any program running as Ruben can overwrite UserDefaults and keychain items (without reading them), but not with the right password, which OpenDirectory checks before the list counts. Change that list only through pairing, removing and saving the password. The menu's **Turn on…** passes those iPhones to `enable-sudo --approvers` and names them in the admin prompt; from a terminal, `enable-sudo` lists them (marking new ones) and asks first.
+
 ## Commands
 
 - All tests: `scripts/test.sh`

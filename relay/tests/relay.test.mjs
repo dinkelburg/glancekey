@@ -89,6 +89,23 @@ test("an agent reply preserves its HTTP status and JSON body", { timeout: 5000 }
   }
 });
 
+test("oversized requests and too many waiting requests are refused", { timeout: 5000 }, async () => {
+  const machineId = crypto.randomUUID();
+  const socket = await connect(machineId);
+  const waiting = [];
+  try {
+    const big = await relay.dispatchFetch(`http://localhost/v1/m/${machineId}/hello`, { method: "POST", body: "x".repeat(16 * 1024 + 1) });
+    assert.equal(big.status, 413);
+
+    for (let i = 0; i < 32; i++) waiting.push((await pendingRequest(machineId, socket)).response);
+    const extra = await relay.dispatchFetch(`http://localhost/v1/m/${machineId}/hello`, { method: "POST", body: "{}" });
+    assert.equal(extra.status, 429);
+  } finally {
+    socket.close(1000);
+  }
+  await Promise.all(waiting); // they fail once the computer disconnects
+});
+
 test("disconnecting an agent promptly fails its pending request", { timeout: 5000 }, async () => {
   const machineId = crypto.randomUUID();
   const socket = await connect(machineId);

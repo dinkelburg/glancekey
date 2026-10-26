@@ -65,6 +65,9 @@ final class PhoneModel: ObservableObject {
     @Published private(set) var approvalStates: [String: OperationState] = [:]
     @Published private(set) var isPairing = false
     @Published var pairingResult: OperationResult?
+    /// A pairing code waiting for you to confirm it: one from a link (which could come from anywhere), or one that
+    /// would replace a pairing. ContentView asks.
+    @Published var pendingInvite: PairingInvite?
     /// On open, unlock the one locked computer. Approvals always wait for a tap.
     @Published var autoUnlockOnOpen: Bool {
         didSet { UserDefaults.standard.set(autoUnlockOnOpen, forKey: Defaults.autoUnlock) }
@@ -121,7 +124,9 @@ final class PhoneModel: ObservableObject {
         return machines.flatMap { machine -> [WaitingApproval] in
             guard let status = statuses[machine.machineId] else { return [] }
             return status.approvals.map {
-                WaitingApproval(machine: machine, approval: $0, expiresAt: status.checkedAt.addingTimeInterval(TimeInterval($0.expiresIn)))
+                // Computers wait two minutes at most; the bound also keeps a bad value from the relay harmless.
+                WaitingApproval(machine: machine, approval: $0,
+                                expiresAt: status.checkedAt.addingTimeInterval(TimeInterval(min(max($0.expiresIn, 0), 300))))
             }
         }
         .filter { $0.expiresAt > now }
@@ -418,16 +423,37 @@ final class PhoneModel: ObservableObject {
 
     func handle(url: URL) {
         autoUnlockTask?.cancel()
-        guard url.scheme == Brand.urlScheme else { return }
-        Task { await pair(code: url.absoluteString) }
+        guard url.scheme == Brand.urlScheme, let invite = invite(from: url.absoluteString) else { return }
+        pendingInvite = invite
     }
 
+    /// Pairs with a code you pasted, after asking if it replaces a pairing.
     func pair(code: String) async {
         autoUnlockTask?.cancel()
+        guard let invite = invite(from: code) else { return }
+        if pairedMachine(replacedBy: invite) != nil {
+            pendingInvite = invite
+        } else {
+            await pair(invite)
+        }
+    }
+
+    /// The paired computer that pairing with `invite` would replace.
+    func pairedMachine(replacedBy invite: PairingInvite) -> PairedMachine? {
+        machines.first { $0.machineId == invite.machineId }
+    }
+
+    /// The invite in a pairing code; says so in `pairingResult` if it isn't one.
+    private func invite(from code: String) -> PairingInvite? {
         guard let invite = PairingInvite(string: code) else {
             pairingResult = OperationResult(success: false, message: "That isn't a \(Brand.name) pairing code. Update both apps if it should be.")
-            return
+            return nil
         }
+        return invite
+    }
+
+    func pair(_ invite: PairingInvite) async {
+        pendingInvite = nil
         guard !isPairing else { return }
         isPairing = true
         defer { isPairing = false }

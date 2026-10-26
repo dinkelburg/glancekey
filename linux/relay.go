@@ -71,6 +71,8 @@ func (a *Agent) serveRelay(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	defer conn.Close()
+	// The relay isn't trusted, so it doesn't get to make this agent buffer or run without bounds either.
+	conn.SetReadLimit(maxRelayMessage)
 	a.setRelayStatus("connected")
 	log.Printf("Connected to %s", url)
 
@@ -118,6 +120,7 @@ func (a *Agent) serveRelay(ctx context.Context) (bool, error) {
 		}
 	}()
 
+	busy := make(chan struct{}, maxRelayRequests)
 	for {
 		conn.SetReadDeadline(time.Now().Add(readTimeout))
 		kind, data, err := conn.ReadMessage()
@@ -131,7 +134,15 @@ func (a *Agent) serveRelay(ctx context.Context) (bool, error) {
 		if err := json.Unmarshal(data, &request); err != nil {
 			continue
 		}
+		select {
+		case busy <- struct{}{}:
+		default:
+			reply, _ := json.Marshal(RelayResponse{ID: request.ID, Status: 503, Body: `{"error":"Your computer is busy. Try again."}`})
+			write(reply)
+			continue
+		}
 		go func() {
+			defer func() { <-busy }()
 			status, result := a.handle(request.Path, []byte(request.Body))
 			body, _ := json.Marshal(result)
 			reply, _ := json.Marshal(RelayResponse{ID: request.ID, Status: status, Body: string(body)})
@@ -141,6 +152,12 @@ func (a *Agent) serveRelay(ctx context.Context) (bool, error) {
 		}()
 	}
 }
+
+const (
+	// Requests are at most 16 KB at the relay (relay/src/index.ts); JSON escaping can double that.
+	maxRelayMessage  = 64 << 10
+	maxRelayRequests = 16
+)
 
 func minInt(a, b int) int {
 	if a < b {
