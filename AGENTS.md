@@ -24,7 +24,7 @@ Approval trust model: for sudo/polkit the checker (root) creates the nonce and v
 
 - All tests: `scripts/test.sh`
 - Mac app: `scripts/build-mac.sh` (builds, installs to ~/Applications, restarts it)
-- iPhone: `scripts/install-iphone.sh` (cable or paired device; signs with `DEVELOPMENT_TEAM` from project.yml, which must be the paid Developer Program team: the push entitlement can't be signed by the free team U78YQGE72M)
+- iPhone: `scripts/install-iphone.sh` (cable or paired device; Ruben's paid Developer Program team U78YQGE72M, so an install keeps opening for a year)
 - Linux binaries: `scripts/build-linux.sh` → `build/linux/`
 - Relay: `cd relay && npx wrangler deploy`. A deploy briefly drops every agent connection; they reconnect within seconds.
 - Website: `cd site && npm install && npx wrangler dev` (http://localhost:8788) to preview, `npm run deploy` to publish the site and its redirects.
@@ -44,4 +44,4 @@ Approval trust model: for sudo/polkit the checker (root) creates the nonce and v
 - Renamed from FaceUnlock to GlanceKey on 2026-10-25, id included. The same day Ruben's iPhone and Mac moved to GlanceKey and FaceUnlock was removed from both, Mac sudo included (it now runs the GlanceKey checker), and the old `faceunlock-relay` worker was deleted. Omarchy still has the old agent.
 - Tested on the real devices: iPhone → relay → Mac unlock, Mac sudo approval, a Mac password dialog. The Linux agent is tested with the fake screen only; Ruben tests on Omarchy himself.
 - Not done: Omarchy sudo setup (Ruben).
-- Notifications moved from ntfy to Apple push on 2026-10-26, in code only. Waiting for Ruben's paid team, which Xcode doesn't show yet. Until `DEVELOPMENT_TEAM` in project.yml is that team, `scripts/install-iphone.sh` fails at signing. The relay also needs an APNs key (README "Notifications"). The installed apps and the deployed relay and site are still the ntfy version. Once the new apps are installed, deploy the relay (`npx wrangler deploy`) and the site (`npm run deploy`).
+- 2026-10-26: notifications moved from ntfy to Apple push and were rolled out. Ruben's Personal Team became his paid individual team with the same ID (U78YQGE72M). So the iPhone app updated in place and kept its pairings, and the Mac app kept its signature, Accessibility permission and keychain access. The relay runs with the APNs key "GlanceKey push" (key ID 55K782WVH5, Sandbox & Production) in the secret `APNS_KEY`, and the site is deployed. Tested the same day: a Mac `sudo` reached Ruben's locked iPhone as a notification. The Linux agent with push isn't on Omarchy yet.

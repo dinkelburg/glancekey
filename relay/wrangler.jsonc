@@ -18,6 +18,9 @@
   // Notifications through Apple's push service (src/index.ts). The key itself is a secret:
   // npx wrangler secret put APNS_KEY < AuthKey_<APNS_KEY_ID>.p8
   "vars": {
+    // "GlanceKey push" in Ruben's Apple Developer account (Sandbox & Production, team scoped)
+    "APNS_KEY_ID": "55K782WVH5",
+    "APNS_TEAM_ID": "U78YQGE72M",
     "APNS_TOPIC": "nl.dinkelworks.glancekey"
   },
   "observability": { "enabled": true }
