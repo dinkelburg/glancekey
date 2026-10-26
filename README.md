@@ -28,7 +28,8 @@ iPhone ──HTTPS──▶ relay (relay.glancekey.com, Cloudflare) ◀──Web
 - **Notifications only name the computer.** A computer that waits for you asks the relay to notify your iPhone; the relay sends "… is waiting for you" through Apple's push service and stores nothing. What's waiting travels over the relay when the app asks, not in the notification.
 - **Relay slot:** each computer claims its slot on the relay with a secret, so nobody else can connect in its place.
 - **Login passwords stay on each computer:**
-  - Mac: in the login keychain. Linux: in the GNOME keyring.
+  - Mac: in the login keychain.
+  - Linux: encrypted to each paired iPhone (`linux/seal.go`, `Core/Sources/AppCore/PasswordSeal.swift`). Each iPhone has a second Secure Enclave key per computer, its password key, which also only works after Face ID. The agent encrypts the password to it and keeps only that, so a copy of its files is useless without the iPhone. To unlock, hello sends a one-time session key; the iPhone works out the key that opens the password and sends it back encrypted to that session key, signed with the command. The iPhone never sees the password, and the relay sees neither the password nor its key. A relay that swaps the session key gets that one key at most (the signature check then fails the unlock), and it opens nothing without the agent's files; after every unlock the agent seals the password again under a fresh key anyway. A plain copy stays in the GNOME keyring until every paired iPhone has opened its own encrypted copy once, so there's a way back if a password key doesn't work: an iPhone on an app version from before this has none, and an updated app registers its password key with its next command.
   - Each is checked against your account before it's typed (OpenDirectory on the Mac, `unix_chkpwd` on Linux).
   - On the Mac, the same keychain item lists the iPhones that may use it. Other programs running as you can overwrite keychain items (without reading them) and the app's settings, but they don't know your password. So an iPhone added behind the app's back can't unlock or approve anything; the menu marks it.
   - The Mac app runs with the hardened runtime and without the debugging entitlement, so other programs can't load code into it or read its memory.
@@ -59,7 +60,7 @@ scp build/linux/glancekey-agent-amd64 omarchy:~/.local/bin/glancekey-agent
 
 # on the Linux machine:
 glancekey-agent install-service   # systemd user service, starts with your session
-glancekey-agent set-password      # needed for Omarchy's lock screen; verified, stored in the keyring
+glancekey-agent set-password      # needed for Omarchy's lock screen; verified, then encrypted to your iPhones
 glancekey-agent pair              # shows the QR code to scan with the iPhone Camera
 glancekey-agent status
 ```
@@ -89,7 +90,7 @@ How it works: PAM runs the checker (`glancekey-agent pam`) as root. It asks the 
 
 **Notifications:** in the iPhone app, turn on **Notify me**. When a computer waits for you, your iPhone gets "… is waiting for you"; tap it to open GlanceKey. The relay sends it through Apple's push service (see [Notifications](#notifications)).
 
-On Linux this is mostly a convenience: the login password the agent keeps for Omarchy's lock screen is in the GNOME keyring, which any program running as you can read, and on Linux it's also your sudo password.
+On Linux this is mostly a convenience: your sudo password is your login password, and a program running as you has ways to catch it, for example the next time it's typed (by you, or by the agent on the lock screen).
 
 ## Mac password dialogs
 
@@ -117,7 +118,7 @@ Without the key the relay works as before and only logs that it can't notify. A 
 - **The computer has to be awake and logged in.**
   - After a restart, type your password once yourself.
   - A sleeping computer can't be reached. On the Mac, "Keep Mac awake on power adapter" (on by default) prevents idle sleep while it's charging.
-- **Linux on Omarchy needs `wtype`, `secret-tool` and an unlocked GNOME keyring.** Omarchy ships all three.
+- **Linux on Omarchy needs `wtype`, and `secret-tool` with an unlocked GNOME keyring** for the password until every paired iPhone has its own encrypted copy. Omarchy ships all three.
 
 ## Releases
 

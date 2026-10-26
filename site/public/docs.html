@@ -72,7 +72,7 @@
     <pre><code>brew install dinkelburg/glancekey/glancekey-agent
 glancekey-agent install-service</code></pre>
     <h3>Set up</h3>
-    <pre><code>glancekey-agent set-password   # for Omarchy's lock screen; checked, then kept in your keyring
+    <pre><code>glancekey-agent set-password   # for Omarchy's lock screen; checked, then encrypted to your iPhone
 glancekey-agent pair           # shows a QR code to scan with your iPhone
 glancekey-agent status         # the connection, the lock screen and your paired iPhones</code></pre>
     <p>How it unlocks depends on your lock screen: on Omarchy it types your saved password (it needs <code>wtype</code>, <code>secret-tool</code> and an unlocked GNOME keyring, which Omarchy has), hyprlock gets a signal to unlock, and GNOME and KDE unlock through logind. Only Omarchy needs the saved password.</p>
@@ -103,7 +103,7 @@ sudo glancekey-agent disable-sudo   # back to just your password</code></pre>
     <p>polkit keeps its settings in <code>/usr/lib/pam.d</code> on Arch and Debian, so <code>enable-sudo</code> copies them to <code>/etc/pam.d/polkit-1</code>; run it again after polkit updates.</p>
     <h3>Why it's safe</h3>
     <p>Your iPhone signs the command it showed you, and a part of GlanceKey that only the system can change checks that signature against the iPhones you paired. GlanceKey itself, the relay and other programs running as you only pass messages along, so they can't approve in your place.</p>
-    <p>On Linux this is mostly a convenience: the password GlanceKey keeps for Omarchy's lock screen is in your keyring, which programs running as you can read, and it's also your sudo password.</p>
+    <p>On Linux this is mostly a convenience: your sudo password is your login password, and a program running as you has ways to catch it, for example the next time it's typed.</p>
 
     <h2 id="dialogs">Mac password dialogs</h2>
     <p>When a Mac dialog asks for your password, such as 1Password, Safari passwords, System Settings or an installer, it shows up on your iPhone. Tap <strong>Approve</strong> and look at your phone, and GlanceKey types your saved password into that dialog. <strong>Deny</strong> cancels it. Handle the dialog on the Mac instead and the request disappears from your phone. Switch it off with <strong>Fill in password dialogs from iPhone</strong> in the menu.</p>

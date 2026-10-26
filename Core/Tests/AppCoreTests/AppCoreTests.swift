@@ -150,9 +150,109 @@ struct ProtocolTests {
         let hello = try JSONDecoder().decode(HelloResponse.self, from: old)
         #expect(hello.locked == nil && hello.approvals == nil)
 
-        // And an older iPhone sends commands without `approvalId`.
-        let command = Data(#"{"deviceId":"d","action":"unlock","nonce":"n","signature":"s"}"#.utf8)
-        #expect(try JSONDecoder().decode(CommandRequest.self, from: command).approvalId == nil)
+        #expect(hello.wantsPasswordKey == nil && hello.sealedPassword == nil)
+
+        // And an older iPhone sends commands without `approvalId`, `passwordKey` or `wrappedKey`.
+        let command = try JSONDecoder().decode(CommandRequest.self,
+                                               from: Data(#"{"deviceId":"d","action":"unlock","nonce":"n","signature":"s"}"#.utf8))
+        #expect(command.approvalId == nil && command.passwordKey == nil && command.wrappedKey == nil)
+
+        // An invite from a computer that doesn't seal its password doesn't ask for a password key, and an invite
+        // that does still opens in an older app (which ignores the field).
+        let invite = PairingInvite(machineId: "m", machineName: "n", platform: "linux", relay: Brand.relay, token: "t")
+        #expect(invite.wantsPasswordKey == nil && !invite.url.absoluteString.contains("wantsPasswordKey"))
+    }
+
+    // The Go agent checks the same values (linux/seal_test.go): it seals to the same bytes and opens the wrapped key.
+    @Test func sealedPasswordVectors() throws {
+        func key(_ byte: UInt8) throws -> P256.KeyAgreement.PrivateKey { try .init(rawRepresentation: Data(repeating: byte, count: 32)) }
+        let phone = try key(0x11), session = try key(0x33)
+        #expect(phone.publicKey.x963Representation.base64EncodedString() == SealVectors.passwordKey)
+        #expect(session.publicKey.x963Representation.base64EncodedString() == SealVectors.sessionKey)
+
+        let sealed = try PasswordSeal.seal(SealVectors.password, to: phone.publicKey.x963Representation, machineId: "machine-1",
+                                           deviceId: "phone-1", ephemeral: key(0x22), aesNonce: AES.GCM.Nonce(data: Data(repeating: 0x55, count: 12)))
+        #expect(sealed.key.base64EncodedString() == SealVectors.sealKey)
+        #expect(sealed.box.base64EncodedString() == SealVectors.sealedBox)
+
+        let passwordKey = PasswordSeal.passwordKey(
+            sharedSecret: try phone.sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: sealed.key)),
+            sealKey: sealed.key, machineId: "machine-1", deviceId: "phone-1")
+        let wrapped = try PasswordSeal.wrap(passwordKey, sessionKey: SealVectors.sessionKey, machineId: "machine-1", deviceId: "phone-1",
+                                            nonce: "nonce-1", ephemeral: key(0x44), aesNonce: AES.GCM.Nonce(data: Data(repeating: 0x66, count: 12)))
+        #expect(wrapped == WrappedKey(key: SealVectors.wrappedKey, box: SealVectors.wrappedBox))
+        #expect(try PasswordSeal.open(sealed, wrapped: wrapped, session: session, machineId: "machine-1", deviceId: "phone-1",
+                                      nonce: "nonce-1") == SealVectors.password)
+
+        let signingKey = try P256.Signing.PublicKey(x963Representation: #require(Data(base64Encoded: SealVectors.signingKey)))
+        let signature = try P256.Signing.ECDSASignature(rawRepresentation: #require(Data(base64Encoded: SealVectors.signature)))
+        func message(sessionKey: String) -> Data {
+            SignedMessage.bytes(machineId: "machine-1", deviceId: "phone-1", action: .unlock, nonce: "nonce-1",
+                                sessionKey: sessionKey, passwordKey: SealVectors.passwordKey, wrappedKey: wrapped)
+        }
+        #expect(signingKey.isValidSignature(signature, for: message(sessionKey: SealVectors.sessionKey)))
+        // A session key swapped in on the way doesn't match what the iPhone signed.
+        #expect(!signingKey.isValidSignature(signature, for: message(sessionKey: SealVectors.sealKey)))
+
+        #expect(PairingProof.make(token: "token-1", machineId: "machine-1", deviceId: "phone-1", deviceName: "iPhone",
+                                  publicKey: SealVectors.signingKey, passwordKey: SealVectors.passwordKey) == SealVectors.proof)
+        #expect(!PairingProof.isValid(SealVectors.proof, token: "token-1", machineId: "machine-1", deviceId: "phone-1", deviceName: "iPhone",
+                                      publicKey: SealVectors.signingKey, passwordKey: SealVectors.sealKey))
+    }
+
+    // The same JSON is in the Go tests (TestSealedPasswordJSONMatchesSwift), so both sides use the same field names.
+    @Test func sealedPasswordJSON() throws {
+        let invite = try #require(PairingInvite(string: Data(#"{"v":2,"machineId":"m","machineName":"n","platform":"linux","relay":"https://r","token":"t","wantsPasswordKey":true}"#.utf8).base64URLEncodedString()))
+        #expect(invite.wantsPasswordKey == true)
+        let hello = try JSONDecoder().decode(HelloResponse.self, from: Data(#"{"machineId":"m","machineName":"n","nonce":"x","wantsPasswordKey":true,"sealedPassword":{"sealKey":"S","sessionKey":"T"}}"#.utf8))
+        #expect(hello.wantsPasswordKey == true && hello.sealedPassword == SealedPasswordChallenge(sealKey: "S", sessionKey: "T"))
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let pair = PairRequest(deviceId: "d", deviceName: "iPhone", publicKey: "k", proof: "p", passwordKey: "P")
+        #expect(String(decoding: try encoder.encode(pair), as: UTF8.self)
+            == #"{"deviceId":"d","deviceName":"iPhone","passwordKey":"P","proof":"p","publicKey":"k"}"#)
+        let command = CommandRequest(deviceId: "d", action: .unlock, nonce: "x", signature: "s", passwordKey: "P",
+                                     wrappedKey: WrappedKey(key: "K", box: "B"))
+        #expect(String(decoding: try encoder.encode(command), as: UTF8.self)
+            == #"{"action":"unlock","deviceId":"d","nonce":"x","passwordKey":"P","signature":"s","wrappedKey":{"box":"B","key":"K"}}"#)
+    }
+
+    // The Mac app (Authenticator) verifies only v1, so a command without a password key or wrapped key must sign
+    // exactly those bytes; Go treats an empty password key as none, and so must Swift.
+    @Test func commandsWithoutPasswordKeysSignVersion1() {
+        let v1 = SignedMessage.bytes(machineId: "m", deviceId: "d", action: .unlock, nonce: "n")
+        #expect(SignedMessage.bytes(machineId: "m", deviceId: "d", action: .unlock, nonce: "n", sessionKey: "s",
+                                    passwordKey: nil, wrappedKey: nil) == v1)
+        #expect(SignedMessage.bytes(machineId: "m", deviceId: "d", action: .unlock, nonce: "n", sessionKey: nil,
+                                    passwordKey: "", wrappedKey: nil) == v1)
+        #expect(PairingProof.make(token: "t", machineId: "m", deviceId: "d", deviceName: "n", publicKey: "k", passwordKey: "")
+            == PairingProof.make(token: "t", machineId: "m", deviceId: "d", deviceName: "n", publicKey: "k"))
+    }
+
+    @Test func sealedPasswordOnlyOpensForItsChallenge() throws {
+        let phone = P256.KeyAgreement.PrivateKey(), session = P256.KeyAgreement.PrivateKey()
+        let sealed = try PasswordSeal.seal("hunter2", to: phone.publicKey.x963Representation, machineId: "m", deviceId: "d")
+        let passwordKey = PasswordSeal.passwordKey(
+            sharedSecret: try phone.sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: sealed.key)),
+            sealKey: sealed.key, machineId: "m", deviceId: "d")
+        let sessionKey = session.publicKey.x963Representation.base64EncodedString()
+        let wrapped = try PasswordSeal.wrap(passwordKey, sessionKey: sessionKey, machineId: "m", deviceId: "d", nonce: "n")
+        #expect(try PasswordSeal.open(sealed, wrapped: wrapped, session: session, machineId: "m", deviceId: "d", nonce: "n") == "hunter2")
+        // Another challenge, another session key, or another computer can't open it.
+        #expect(throws: (any Error).self) {
+            try PasswordSeal.open(sealed, wrapped: wrapped, session: session, machineId: "m", deviceId: "d", nonce: "other")
+        }
+        #expect(throws: (any Error).self) {
+            try PasswordSeal.open(sealed, wrapped: wrapped, session: P256.KeyAgreement.PrivateKey(), machineId: "m", deviceId: "d", nonce: "n")
+        }
+        let elsewhere = PasswordSeal.passwordKey(
+            sharedSecret: try phone.sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: sealed.key)),
+            sealKey: sealed.key, machineId: "other", deviceId: "d")
+        let wrong = try PasswordSeal.wrap(elsewhere, sessionKey: sessionKey, machineId: "m", deviceId: "d", nonce: "n")
+        #expect(throws: (any Error).self) {
+            try PasswordSeal.open(sealed, wrapped: wrong, session: session, machineId: "m", deviceId: "d", nonce: "n")
+        }
     }
 
     @Test func pushTokens() {
@@ -163,6 +263,23 @@ struct ProtocolTests {
         #expect(!PushToken.isValid(token + "/../x"))
         #expect(!PushToken.isValid(String(repeating: "ａ", count: 64)))
     }
+}
+
+/// Made by CryptoKit from keys whose raw bytes are all 0x11 (iPhone's password key), 0x22 (seal), 0x33 (session),
+/// 0x44 (wrap) and 0x77 (signing), with AES-GCM nonces of 0x55 (seal) and 0x66 (wrap); machine-1, phone-1, nonce-1.
+enum SealVectors {
+    static let password = "correct horse battery staple"
+    static let passwordKey = "BAIX5hfwtkQ5KCePlpmeaaI6TywVK99tbN9m5bgCgtTtGUp968uXcS0t2jyoWqh2Wlb0X8dYWZZS8ol8ZTBuV5Q="
+    static let sessionKey = "BFGnWAgziY6hsYPL1zUKQJkHjG7xweGOlwzXaDA18l59ARBSJxKwtafP8IFoVIaYSpTmgx7axG5zYPqdg0p6gaE="
+    static let sealKey = "BNZak5d8qj0bCBhS/1ennkZfFmBXcwS66tUF3TpIWJzzUBheiVNy32Ih6joTdVfkc/3bZ1XwW9UHw8Uz/OnJEoU="
+    static let sealedBox = "VVVVVVVVVVVVVVVVDSFIX1bYxnvb+2RCqQpeh2FPuhlUCy/2ZlGbPV4EVJre1BD/9OD7UWgVDmg="
+    static let wrappedKey = "BFs2iQ2svXyalrt0oe4os9LXW3LgmiDvJc+Ob9ip8DUNDhS+2NRoKjTYNTi9/1uW6JpmZuwNtXRdAvoSEAct91o="
+    static let wrappedBox = "ZmZmZmZmZmZmZmZmBqoiN6viHPwBy8Tb6PhiiOq+F9l6JCoi/Tlia5A9u9srfDhbzMgc59lM5WGgn6La"
+    static let signingKey = "BORQVOtbGr2XZlD385W/UdDY3Rk+AXTnoUocjBJ/vfLbrv4yk7BEXz+Sv44QggLgCUFciZSZYgxxt/bfkCETLJw="
+    // Over the v2 SignedMessage for unlock with sessionKey, passwordKey and the wrapped key above.
+    static let signature = "/sz4g7aULdEIQ9+nSBRu0O5vqJYoi27erdL8QLnE3HtEDDY83docWnPwXr+85DXMdNSjsAZLeLFUxq6mGAJjyw=="
+    // v2 pairing proof for token-1, deviceName "iPhone", publicKey signingKey and passwordKey.
+    static let proof = "4oi3gBnMscPvs7i3pHKT/t4JitYW/oswzpVx8YkWwcI="
 }
 
 enum Vectors {

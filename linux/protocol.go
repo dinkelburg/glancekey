@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 )
 
@@ -44,6 +45,8 @@ type PairingInvite struct {
 	Platform    string `json:"platform"`
 	Relay       string `json:"relay"`
 	Token       string `json:"token"`
+	// WantsPasswordKey asks the iPhone for a password key, so the agent can seal the password to it (seal.go).
+	WantsPasswordKey bool `json:"wantsPasswordKey,omitempty"`
 }
 
 // URL opens straight in the iPhone app when scanned with the Camera app.
@@ -57,6 +60,8 @@ type PairRequest struct {
 	DeviceName string `json:"deviceName"`
 	PublicKey  string `json:"publicKey"`
 	Proof      string `json:"proof"`
+	// PasswordKey is the iPhone's password key (seal.go), base64 X9.63, when the invite asked for one.
+	PasswordKey string `json:"passwordKey,omitempty"`
 }
 
 type PairResponse struct {
@@ -76,6 +81,10 @@ type HelloResponse struct {
 	Nonce       string     `json:"nonce"`
 	Locked      *bool      `json:"locked,omitempty"`
 	Approvals   []Approval `json:"approvals,omitempty"`
+	// WantsPasswordKey asks the iPhone to register a password key with its next signed command.
+	WantsPasswordKey bool `json:"wantsPasswordKey,omitempty"`
+	// SealedPassword lets the iPhone open the password sealed to it, when unlocking.
+	SealedPassword *SealedPasswordChallenge `json:"sealedPassword,omitempty"`
 }
 
 // Approval is a password prompt (sudo, a polkit dialog) waiting for the iPhone. The root-owned checker
@@ -94,6 +103,15 @@ type CommandRequest struct {
 	Nonce      string `json:"nonce"`
 	Signature  string `json:"signature"`
 	ApprovalID string `json:"approvalId,omitempty"`
+	// PasswordKey registers the iPhone's password key (base64 X9.63) when hello asked for one.
+	PasswordKey string `json:"passwordKey,omitempty"`
+	// WrappedKey opens the sealed password when hello sent a challenge.
+	WrappedKey *WrappedKey `json:"wrappedKey,omitempty"`
+}
+
+// carriesPasswordKeys says whether the command is signed with signedMessageV2.
+func (r CommandRequest) carriesPasswordKeys() bool {
+	return r.PasswordKey != "" || r.WrappedKey != nil
 }
 
 type CommandResponse struct {
@@ -135,6 +153,18 @@ func signedMessage(machineID, deviceID string, action Action, nonce string) []by
 	return []byte(fmt.Sprintf("faceunlock/v1\n%s\n%s\n%s\n%s", machineID, deviceID, action, nonce))
 }
 
+// signedMessageV2 is what the iPhone signs instead when the command carries a password key or a wrapped key. It
+// covers the challenge's session key, so a session key swapped in on the way makes the signature fail. None of the
+// fields can contain a line break (base64), so they can't shift.
+func signedMessageV2(machineID, deviceID string, action Action, nonce, sessionKey, passwordKey string, wrapped *WrappedKey) []byte {
+	wrappedKey, wrappedBox := "", ""
+	if wrapped != nil {
+		wrappedKey, wrappedBox = wrapped.Key, wrapped.Box
+	}
+	return []byte(strings.Join([]string{"faceunlock/v2", machineID, deviceID, string(action), nonce, sessionKey, passwordKey,
+		wrappedKey, wrappedBox}, "\n"))
+}
+
 // approvalMessage is what the iPhone signs to approve. It includes what the iPhone showed, so a swapped title
 // or detail makes the signature fail; the checker never puts line breaks in them, so fields can't shift.
 func approvalMessage(machineID, deviceID string, approval Approval) []byte {
@@ -160,16 +190,21 @@ func validPushToken(token string) bool {
 	return true
 }
 
-// pairingProof is an HMAC keyed with the QR code's token, so the token itself never crosses the network.
-func pairingProof(token, machineID, deviceID, deviceName, publicKey string) []byte {
+// pairingProof is an HMAC keyed with the QR code's token, so the token itself never crosses the network. With a
+// password key it covers that too (v2), so nobody can swap in their own.
+func pairingProof(token, machineID, deviceID, deviceName, publicKey, passwordKey string) []byte {
 	mac := hmac.New(sha256.New, []byte(token))
-	fmt.Fprintf(mac, "faceunlock-pair/v1\n%s\n%s\n%s\n%s", machineID, deviceID, deviceName, publicKey)
+	if passwordKey == "" {
+		fmt.Fprintf(mac, "faceunlock-pair/v1\n%s\n%s\n%s\n%s", machineID, deviceID, deviceName, publicKey)
+	} else {
+		fmt.Fprintf(mac, "faceunlock-pair/v2\n%s\n%s\n%s\n%s\n%s", machineID, deviceID, deviceName, publicKey, passwordKey)
+	}
 	return mac.Sum(nil)
 }
 
-func validPairingProof(proof, token, machineID, deviceID, deviceName, publicKey string) bool {
+func validPairingProof(proof, token, machineID, deviceID, deviceName, publicKey, passwordKey string) bool {
 	given, err := base64.StdEncoding.DecodeString(proof)
-	return err == nil && hmac.Equal(given, pairingProof(token, machineID, deviceID, deviceName, publicKey))
+	return err == nil && hmac.Equal(given, pairingProof(token, machineID, deviceID, deviceName, publicKey, passwordKey))
 }
 
 // parsePublicKey reads an uncompressed X9.63 P-256 key, as CryptoKit's x963Representation writes it.

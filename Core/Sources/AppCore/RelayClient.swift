@@ -35,8 +35,11 @@ public struct RelayClient: Sendable {
         self.init(relay: invite.relay, machineId: invite.machineId)
     }
 
-    public func pair(invite: PairingInvite, deviceId: String, deviceName: String, publicKey: Data) async throws -> PairResponse {
-        let request = PairRequest(invite: invite, deviceId: deviceId, deviceName: deviceName, publicKey: publicKey)
+    /// `passwordKey` is the iPhone's password key (`PasswordSeal`), for invites that ask for one.
+    public func pair(invite: PairingInvite, deviceId: String, deviceName: String, publicKey: Data,
+                     passwordKey: Data? = nil) async throws -> PairResponse {
+        let request = PairRequest(invite: invite, deviceId: deviceId, deviceName: deviceName, publicKey: publicKey,
+                                  passwordKey: passwordKey)
         let response: PairResponse = try await post("pair", body: request, timeout: helloTimeout)
         guard response.machineId == machineId else { throw ClientError.wrongMachine }
         return response
@@ -48,8 +51,11 @@ public struct RelayClient: Sendable {
         return response
     }
 
-    public func command(_ action: Action, nonce: String, signature: Data, deviceId: String) async throws -> CommandResponse {
-        let request = CommandRequest(deviceId: deviceId, action: action, nonce: nonce, signature: signature.base64EncodedString())
+    /// `signature` is over `SignedMessage.bytes`: the v2 bytes when there's a `passwordKey` or `wrappedKey`.
+    public func command(_ action: Action, nonce: String, signature: Data, deviceId: String,
+                        passwordKey: String? = nil, wrappedKey: WrappedKey? = nil) async throws -> CommandResponse {
+        let request = CommandRequest(deviceId: deviceId, action: action, nonce: nonce, signature: signature.base64EncodedString(),
+                                     passwordKey: passwordKey, wrappedKey: wrappedKey)
         return try await post("command", body: request, timeout: commandTimeout)
     }
 

@@ -29,6 +29,12 @@ rm -rf "$archive"
 xcodebuild -project $APP_NAME.xcodeproj -scheme PhoneApp -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$archive" -derivedDataPath build/DerivedData \
   CURRENT_PROJECT_VERSION=$build -allowProvisioningUpdates -quiet archive
+# App Store Connect rejects a build number it has seen before, so check it took before uploading.
+archived=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive/Info.plist")
+if [[ $archived != "$build" ]]; then
+  echo "The archive has build number $archived instead of $build; not uploading." >&2
+  exit 1
+fi
 xcodebuild -exportArchive -archivePath "$archive" -exportPath build/upload \
   -exportOptionsPlist "$export_options" -allowProvisioningUpdates
 echo "Uploaded build $build. TestFlight shows it once App Store Connect has processed it."

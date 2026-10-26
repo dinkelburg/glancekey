@@ -29,7 +29,7 @@ struct ComputerQuery: EntityQuery {
 
 struct UnlockComputerIntent: AppIntent {
     static let title: LocalizedStringResource = "Unlock Computer"
-    static let description = IntentDescription("Unlocks a paired computer after Face ID. Leave Computer empty to unlock the one that's locked; requests such as sudo open in the app for you to approve.")
+    static let description = IntentDescription("Unlocks a paired computer after Face ID or Touch ID. Leave Computer empty to unlock the one that's locked; requests such as sudo open in the app for you to approve.")
     static let openAppWhenRun = true
 
     @Parameter(title: "Computer")
@@ -48,7 +48,7 @@ struct UnlockComputerIntent: AppIntent {
 
 struct LockComputerIntent: AppIntent {
     static let title: LocalizedStringResource = "Lock Computer"
-    static let description = IntentDescription("Locks a paired computer after Face ID. Leave Computer empty to use the first one.")
+    static let description = IntentDescription("Locks a paired computer after Face ID or Touch ID. Leave Computer empty to use the first one.")
     static let openAppWhenRun = true
 
     @Parameter(title: "Computer")

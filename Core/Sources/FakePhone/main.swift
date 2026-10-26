@@ -12,6 +12,8 @@ struct State: Codable {
     var machineName: String
     var deviceId: String
     var privateKey: Data
+    /// Raw software key-agreement key, for a computer that seals its password (`PasswordSeal`).
+    var passwordKey: Data?
 
     var client: RelayClient {
         let relay = ProcessInfo.processInfo.environment["FAKE_PHONE_RELAY"].flatMap(URL.init(string:)) ?? relay
@@ -34,16 +36,40 @@ func loadState() -> State {
     return state
 }
 
+func save(_ state: State) throws {
+    try JSONEncoder().encode(state).write(to: URL(fileURLWithPath: statePath), options: .atomic)
+}
+
 func describe(_ error: Error) -> String {
     (error as? LocalizedError)?.errorDescription ?? "\(error)"
 }
 
+/// Signs and sends `action` as the iPhone app does, including the password key and the wrapped key for a computer
+/// that seals its password.
 func send(_ action: Action, state: State, signingKey: P256.Signing.PrivateKey, reuseNonce: String? = nil) async throws -> (CommandResponse, String) {
+    var state = state
     let hello = try await state.client.hello(deviceId: state.deviceId)
     let nonce = reuseNonce ?? hello.nonce
-    let message = SignedMessage.bytes(machineId: state.machineId, deviceId: state.deviceId, action: action, nonce: nonce)
+    var passwordKey: String?
+    if hello.wantsPasswordKey == true {
+        if state.passwordKey == nil {
+            state.passwordKey = P256.KeyAgreement.PrivateKey().rawRepresentation
+            try save(state)
+        }
+        passwordKey = try P256.KeyAgreement.PrivateKey(rawRepresentation: state.passwordKey!).publicKey.x963Representation.base64EncodedString()
+    }
+    var wrappedKey: WrappedKey?
+    if action == .unlock, let sealed = hello.sealedPassword, let sealKey = Data(base64Encoded: sealed.sealKey), let raw = state.passwordKey {
+        let secret = try P256.KeyAgreement.PrivateKey(rawRepresentation: raw)
+            .sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: sealKey))
+        let key = PasswordSeal.passwordKey(sharedSecret: secret, sealKey: sealKey, machineId: state.machineId, deviceId: state.deviceId)
+        wrappedKey = try PasswordSeal.wrap(key, sessionKey: sealed.sessionKey, machineId: state.machineId, deviceId: state.deviceId, nonce: nonce)
+    }
+    let message = SignedMessage.bytes(machineId: state.machineId, deviceId: state.deviceId, action: action, nonce: nonce,
+                                      sessionKey: hello.sealedPassword?.sessionKey, passwordKey: passwordKey, wrappedKey: wrappedKey)
     let signature = try signingKey.signature(for: message).rawRepresentation
-    let response = try await state.client.command(action, nonce: nonce, signature: signature, deviceId: state.deviceId)
+    let response = try await state.client.command(action, nonce: nonce, signature: signature, deviceId: state.deviceId,
+                                                  passwordKey: passwordKey, wrappedKey: wrappedKey)
     return (response, nonce)
 }
 
@@ -70,7 +96,7 @@ func option(_ name: String) -> String? {
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 let usage = """
-usage: fake-phone pair <pairing-url-or-code>
+usage: fake-phone pair <pairing-url-or-code> [--old-app]    # --old-app: without a password key
        fake-phone unlock | lock | status
        fake-phone hello [--push-token <hex>|--push-token ""]  # lock state and waiting approvals, no signature
        fake-phone approve [--wait <seconds>]                  # approves the first waiting request
@@ -116,17 +142,20 @@ case "approve", "approve-tampered", "deny":
     }
 
 case "pair":
-    guard arguments.count == 2, let invite = PairingInvite(string: arguments[1]) else { fail("invalid pairing code\n\(usage)", code: 64) }
+    guard arguments.count >= 2, let invite = PairingInvite(string: arguments[1]) else { fail("invalid pairing code\n\(usage)", code: 64) }
     let key = P256.Signing.PrivateKey()
+    // --old-app pairs like an app from before sealed passwords, without a password key.
+    let passwordKey = invite.wantsPasswordKey == true && !arguments.contains("--old-app") ? P256.KeyAgreement.PrivateKey() : nil
     let deviceId = UUID().uuidString
     do {
         let client = ProcessInfo.processInfo.environment["FAKE_PHONE_RELAY"].flatMap(URL.init(string:))
             .map { RelayClient(relay: $0, machineId: invite.machineId) } ?? RelayClient(invite: invite)
         let response = try await client.pair(invite: invite, deviceId: deviceId, deviceName: "fake-phone",
-                                                                  publicKey: key.publicKey.x963Representation)
+                                             publicKey: key.publicKey.x963Representation,
+                                             passwordKey: passwordKey?.publicKey.x963Representation)
         let state = State(relay: invite.relay, machineId: response.machineId, machineName: response.machineName,
-                          deviceId: deviceId, privateKey: key.rawRepresentation)
-        try JSONEncoder().encode(state).write(to: URL(fileURLWithPath: statePath), options: .atomic)
+                          deviceId: deviceId, privateKey: key.rawRepresentation, passwordKey: passwordKey?.rawRepresentation)
+        try save(state)
         printJSON(["paired": true, "machineName": response.machineName, "platform": invite.platform, "relay": invite.relay.absoluteString])
     } catch {
         fail(describe(error))

@@ -31,7 +31,7 @@ var usage = func() string {
 
 Usage:
   {agent} install-service	Install and start the systemd user service
-  {agent} set-password [--stdin]	Save your login password in the keyring (Omarchy lock screen)
+  {agent} set-password [--stdin]	Save your login password, encrypted to your iPhone (Omarchy lock screen)
   {agent} forget-password	Remove the saved password
   {agent} pair	Show a QR code to pair your iPhone
   {agent} status	Show the connection, lock screen and paired iPhones
@@ -83,7 +83,7 @@ func main() {
 	case "set-password":
 		err = cmdSetPassword(len(os.Args) > 2 && os.Args[2] == "--stdin")
 	case "forget-password":
-		err = keyringPasswords{}.Clear()
+		err = cmdForgetPassword()
 	case "install-service":
 		err = cmdInstallService()
 	case "enable-sudo":
@@ -105,6 +105,13 @@ func main() {
 }
 
 func cmdRun() error {
+	lock, err := lockState()
+	if errors.Is(err, errStateLocked) {
+		return fmt.Errorf("another %s agent is already running", appName)
+	} else if err != nil {
+		return err
+	}
+	defer lock.Close()
 	state, err := loadState()
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", statePath(), err)
@@ -164,7 +171,11 @@ func cmdPair() error {
 			}
 			for _, device := range now.Status.Devices {
 				if !known[device.ID] {
-					fmt.Printf("Paired %s. Unlock this computer from the %s app.\n", device.Name, appName)
+					fmt.Printf("Paired %s.\n", device.Name)
+					if now.Status.PasswordNeeded && !device.PasswordSealed && !now.Status.PasswordInKeyring {
+						return askPasswordFor(device.Name)
+					}
+					fmt.Printf("Unlock this computer from the %s app.\n", appName)
 					return nil
 				}
 			}
@@ -190,9 +201,20 @@ func cmdStatus() error {
 		fmt.Printf("Lock screen:  %s, unlocked\n", s.Screen)
 	}
 	if s.PasswordNeeded {
-		saved := "saved"
-		if !s.PasswordSaved {
+		var without []string
+		for _, device := range s.Devices {
+			if !device.PasswordSealed && !s.PasswordInKeyring {
+				without = append(without, device.Name)
+			}
+		}
+		saved := "saved, encrypted to each iPhone"
+		switch {
+		case !s.PasswordSaved:
 			saved = "NOT saved; run `" + agentCommand + " set-password`"
+		case len(without) > 0:
+			saved = fmt.Sprintf("NOT saved for %s; run `%s set-password`", strings.Join(without, ", "), agentCommand)
+		case s.PasswordInKeyring:
+			saved = "saved; also in the keyring until every iPhone has unlocked once with its encrypted copy"
 		}
 		fmt.Printf("Password:     %s\n", saved)
 	}
@@ -207,6 +229,12 @@ func cmdStatus() error {
 		used := "never used"
 		if device.LastUsedAt != nil {
 			used = "last used " + device.LastUsedAt.Local().Format("2 Jan 15:04")
+		}
+		if s.PasswordNeeded && device.PasswordSealed {
+			used += ", password encrypted to it"
+			if !device.OpenedSealed {
+				used += " (not unlocked with it yet)"
+			}
 		}
 		fmt.Printf("%s %s (%s, %s)\n", label, device.Name, device.ID, used)
 	}
@@ -247,18 +275,68 @@ func cmdSetPassword(fromStdin bool) error {
 	if password == "" {
 		return errors.New("empty password")
 	}
-	passwords := keyringPasswords{}
-	switch passwords.Check(password) {
-	case checkWrong:
-		return fmt.Errorf("that isn't the login password for %s", username())
-	case checkUnknown:
-		fmt.Println("Couldn't verify the password here; saving it anyway.")
+	return savePassword(password)
+}
+
+// savePassword hands the password to the running agent, which seals it to the paired iPhones (seal.go). Without a
+// running agent it does the same on the state file itself.
+func savePassword(password string) error {
+	response, err := callAgent(controlRequest{Command: "set-password", Argument: password})
+	if errors.Is(err, errAgentNotRunning) {
+		agent, lock, loadErr := offlineAgent()
+		if loadErr != nil {
+			return loadErr
+		}
+		defer lock.Close()
+		response.Message, err = agent.setPassword(password)
 	}
-	if err := passwords.Save(password); err != nil {
-		return fmt.Errorf("saving to the keyring: %w", err)
+	if err != nil {
+		return err
 	}
-	fmt.Println("Saved in your keyring. " + appName + " types it on the lock screen after you approve with Face ID.")
+	fmt.Println(response.Message, appName+" types it on the lock screen after you approve on your iPhone.")
 	return nil
+}
+
+func cmdForgetPassword() error {
+	_, err := callAgent(controlRequest{Command: "forget-password"})
+	if errors.Is(err, errAgentNotRunning) {
+		agent, lock, loadErr := offlineAgent()
+		if loadErr != nil {
+			return loadErr
+		}
+		defer lock.Close()
+		err = agent.forgetPassword()
+	}
+	return err
+}
+
+// offlineAgent works on the state file directly, for password commands while the agent isn't running. Close the
+// returned lock when done.
+func offlineAgent() (*Agent, *os.File, error) {
+	lock, err := lockState()
+	if errors.Is(err, errStateLocked) {
+		// Running, but its control socket isn't up (yet), or it failed.
+		return nil, nil, fmt.Errorf("the agent is running but didn't answer; try again, or restart it with `systemctl --user restart %s`", agentCommand)
+	} else if err != nil {
+		return nil, nil, err
+	}
+	state, err := loadState()
+	if err != nil {
+		lock.Close()
+		return nil, nil, fmt.Errorf("reading %s: %w", statePath(), err)
+	}
+	return newAgent(state, detectScreen(), keyringPasswords{}), lock, nil
+}
+
+// askPasswordFor asks for the login password once after pairing, when the agent has no copy it can seal to the
+// new iPhone (every other iPhone already has its own encrypted copy).
+func askPasswordFor(deviceName string) error {
+	password, err := readPassword(fmt.Sprintf("Type the login password for %s once, so %s can unlock this computer (Enter to skip): ", username(), deviceName))
+	if err != nil || password == "" {
+		fmt.Printf("Skipped. Run `%s set-password` later, or unlock once from an iPhone that already can.\n", agentCommand)
+		return nil
+	}
+	return savePassword(password)
 }
 
 // readPassword reads a line from the terminal with echo off.

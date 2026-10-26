@@ -9,7 +9,13 @@ struct ContentView: View {
         NavigationStack {
             Group {
                 if model.machines.isEmpty {
-                    ScrollView { PairingView().padding() }
+                    ScrollView {
+                        VStack(spacing: 32) {
+                            PairingView()
+                            AboutLinks()
+                        }
+                        .padding()
+                    }
                 } else {
                     machineList
                 }
@@ -66,13 +72,13 @@ struct ContentView: View {
                     Button {
                         Task { await model.unlockAll() }
                     } label: {
-                        Label("Unlock all \(model.lockedMachines.count)", systemImage: "faceid")
+                        Label("Unlock all \(model.lockedMachines.count)", systemImage: Biometry.symbol)
                             .font(.headline)
                             .frame(maxWidth: .infinity, minHeight: 40)
                     }
                     .buttonStyle(.borderedProminent)
                 } footer: {
-                    Text("One Face ID unlocks every locked computer.")
+                    Text("One \(Biometry.name) unlocks every locked computer.")
                 }
             }
             ForEach(model.machines) { machine in
@@ -87,6 +93,9 @@ struct ContentView: View {
                 Text("Opening \(Brand.name) unlocks the one locked computer; with more, tap the one you want. Requests like sudo always wait for you to tap Approve. Tip: add “Unlock Computer” to the Action button, Control Center or your Home Screen in Shortcuts.")
             }
             NotificationsSection()
+            Section {
+                AboutLinks()
+            }
         }
         .refreshable { await model.refresh() }
     }
@@ -119,7 +128,7 @@ private struct ApprovalCard: View {
                 Button {
                     Task { await model.approve(waiting) }
                 } label: {
-                    Label("Approve", systemImage: "faceid")
+                    Label("Approve", systemImage: Biometry.symbol)
                         .frame(maxWidth: .infinity, minHeight: 36)
                 }
                 .buttonStyle(.borderedProminent)
@@ -210,7 +219,7 @@ private struct MachineCard: View {
                 Task { await model.perform(.unlock, on: machine) }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "faceid")
+                    Image(systemName: Biometry.symbol)
                     Text("Unlock")
                 }
                 .font(.title3.weight(.semibold))
@@ -278,18 +287,21 @@ struct PairingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Image(systemName: "faceid")
+            Image(systemName: Biometry.symbol)
                 .font(.system(size: 56))
                 .foregroundStyle(.tint)
                 .frame(maxWidth: .infinity)
 
-            Text("Unlock your computers with Face ID")
+            Text("Unlock your computers with \(Biometry.name)")
                 .font(.title2.weight(.bold))
                 .frame(maxWidth: .infinity)
 
             VStack(alignment: .leading, spacing: 12) {
-                Step(number: 1, text: "On your Mac, click the \(Brand.name) menu bar icon, then **Pair iPhone…** On Linux, run **\(Brand.id)-agent pair**.")
-                Step(number: 2, text: "Scan the QR code with the iPhone **Camera** app and tap the \(Brand.name) link.")
+                Step(number: 1, text: "Install \(Brand.name) on your Mac or Linux computer.") {
+                    Link("Download for Mac or Linux", destination: Brand.download)
+                }
+                Step(number: 2, text: "On your Mac, click the \(Brand.name) menu bar icon, then **Pair iPhone…** On Linux, run **\(Brand.id)-agent pair**.")
+                Step(number: 3, text: "Scan the QR code with the iPhone **Camera** app and tap the \(Brand.name) link.")
             }
 
             Divider()
@@ -331,9 +343,10 @@ struct PairingView: View {
     }
 }
 
-private struct Step: View {
+private struct Step<Extra: View>: View {
     let number: Int
     let text: LocalizedStringKey
+    @ViewBuilder var extra: Extra
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -341,7 +354,28 @@ private struct Step: View {
                 .font(.footnote.weight(.bold))
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(.tint.opacity(0.15)))
-            Text(text)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(text)
+                extra
+            }
         }
+    }
+}
+
+extension Step where Extra == EmptyView {
+    init(number: Int, text: LocalizedStringKey) {
+        self.init(number: number, text: text) { EmptyView() }
+    }
+}
+
+/// Help and the privacy policy, on the website.
+private struct AboutLinks: View {
+    var body: some View {
+        HStack(spacing: 24) {
+            Link("Help", destination: Brand.docs)
+            Link("Privacy Policy", destination: Brand.privacyPolicy)
+        }
+        .font(.footnote)
+        .frame(maxWidth: .infinity)
     }
 }

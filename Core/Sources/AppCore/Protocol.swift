@@ -34,14 +34,17 @@ public struct PairingInvite: Codable, Equatable, Sendable {
     public var platform: String
     public var relay: URL
     public var token: String
+    /// The computer keeps its password sealed to the iPhone (`PasswordSeal`), so pairing sends a password key too.
+    public var wantsPasswordKey: Bool?
 
-    public init(machineId: String, machineName: String, platform: String, relay: URL, token: String) {
+    public init(machineId: String, machineName: String, platform: String, relay: URL, token: String, wantsPasswordKey: Bool? = nil) {
         self.v = WireProtocol.version
         self.machineId = machineId
         self.machineName = machineName
         self.platform = platform
         self.relay = relay
         self.token = token
+        self.wantsPasswordKey = wantsPasswordKey
     }
 
     /// `<Brand.urlScheme>://pair?d=<base64url JSON>`, which the iPhone Camera app opens straight in the app.
@@ -76,40 +79,52 @@ public struct PairRequest: Codable, Sendable {
     public var publicKey: String
     /// See `PairingProof`.
     public var proof: String
+    /// Base64 X9.63 P-256 public key of the iPhone's password key (`PasswordSeal`), when the invite asks for one.
+    public var passwordKey: String?
 
-    public init(deviceId: String, deviceName: String, publicKey: String, proof: String) {
+    public init(deviceId: String, deviceName: String, publicKey: String, proof: String, passwordKey: String? = nil) {
         self.deviceId = deviceId
         self.deviceName = deviceName
         self.publicKey = publicKey
         self.proof = proof
+        self.passwordKey = passwordKey
     }
 
     /// Builds a request that proves knowledge of the QR code's token without sending it.
-    public init(invite: PairingInvite, deviceId: String, deviceName: String, publicKey: Data) {
+    public init(invite: PairingInvite, deviceId: String, deviceName: String, publicKey: Data, passwordKey: Data? = nil) {
         let publicKey = publicKey.base64EncodedString()
+        let passwordKey = passwordKey?.base64EncodedString()
         self.init(deviceId: deviceId, deviceName: deviceName, publicKey: publicKey,
                   proof: PairingProof.make(token: invite.token, machineId: invite.machineId, deviceId: deviceId,
-                                           deviceName: deviceName, publicKey: publicKey))
+                                           deviceName: deviceName, publicKey: publicKey, passwordKey: passwordKey),
+                  passwordKey: passwordKey)
     }
 }
 
 /// The pairing token only travels optically, in the QR code. Over the network the iPhone sends an HMAC of its
 /// key keyed with the token, so neither the relay nor anyone else can learn the token or swap in their own key.
+/// With a password key, the proof covers it too (v2), so nobody can swap in their own.
 public enum PairingProof {
-    public static func make(token: String, machineId: String, deviceId: String, deviceName: String, publicKey: String) -> String {
-        let code = HMAC<SHA256>.authenticationCode(for: message(machineId, deviceId, deviceName, publicKey),
+    public static func make(token: String, machineId: String, deviceId: String, deviceName: String, publicKey: String,
+                            passwordKey: String? = nil) -> String {
+        let code = HMAC<SHA256>.authenticationCode(for: message(machineId, deviceId, deviceName, publicKey, passwordKey),
                                                    using: SymmetricKey(data: Data(token.utf8)))
         return Data(code).base64EncodedString()
     }
 
-    public static func isValid(_ proof: String, token: String, machineId: String, deviceId: String, deviceName: String, publicKey: String) -> Bool {
+    public static func isValid(_ proof: String, token: String, machineId: String, deviceId: String, deviceName: String,
+                               publicKey: String, passwordKey: String? = nil) -> Bool {
         guard let code = Data(base64Encoded: proof) else { return false }
-        return HMAC<SHA256>.isValidAuthenticationCode(code, authenticating: message(machineId, deviceId, deviceName, publicKey),
+        return HMAC<SHA256>.isValidAuthenticationCode(code, authenticating: message(machineId, deviceId, deviceName, publicKey, passwordKey),
                                                       using: SymmetricKey(data: Data(token.utf8)))
     }
 
-    private static func message(_ machineId: String, _ deviceId: String, _ deviceName: String, _ publicKey: String) -> Data {
-        Data("faceunlock-pair/v1\n\(machineId)\n\(deviceId)\n\(deviceName)\n\(publicKey)".utf8)
+    private static func message(_ machineId: String, _ deviceId: String, _ deviceName: String, _ publicKey: String,
+                                _ passwordKey: String?) -> Data {
+        guard let passwordKey, !passwordKey.isEmpty else {
+            return Data("faceunlock-pair/v1\n\(machineId)\n\(deviceId)\n\(deviceName)\n\(publicKey)".utf8)
+        }
+        return Data("faceunlock-pair/v2\n\(machineId)\n\(deviceId)\n\(deviceName)\n\(publicKey)\n\(passwordKey)".utf8)
     }
 }
 
@@ -144,13 +159,47 @@ public struct HelloResponse: Codable, Sendable {
     public var locked: Bool?
     /// What the computer is waiting for you to approve, such as a `sudo` command.
     public var approvals: [Approval]?
+    /// The computer has no password key for this iPhone yet: send one with the next signed command.
+    public var wantsPasswordKey: Bool?
+    /// The computer keeps its password sealed to this iPhone; unlocking sends the key that opens it.
+    public var sealedPassword: SealedPasswordChallenge?
 
-    public init(machineId: String, machineName: String, nonce: String, locked: Bool? = nil, approvals: [Approval]? = nil) {
+    public init(machineId: String, machineName: String, nonce: String, locked: Bool? = nil, approvals: [Approval]? = nil,
+                wantsPasswordKey: Bool? = nil, sealedPassword: SealedPasswordChallenge? = nil) {
         self.machineId = machineId
         self.machineName = machineName
         self.nonce = nonce
         self.locked = locked
         self.approvals = approvals
+        self.wantsPasswordKey = wantsPasswordKey
+        self.sealedPassword = sealedPassword
+    }
+}
+
+/// What the iPhone needs to open a sealed password (`PasswordSeal`) for this challenge.
+public struct SealedPasswordChallenge: Codable, Equatable, Sendable {
+    /// Base64 X9.63 public half of the one-time key the password was sealed with.
+    public var sealKey: String
+    /// Base64 X9.63 public half of a one-time key the computer made for this challenge; the iPhone encrypts the
+    /// sealed password's key to it.
+    public var sessionKey: String
+
+    public init(sealKey: String, sessionKey: String) {
+        self.sealKey = sealKey
+        self.sessionKey = sessionKey
+    }
+}
+
+/// The key that opens a sealed password, encrypted to the challenge's `sessionKey`.
+public struct WrappedKey: Codable, Equatable, Sendable {
+    /// Base64 X9.63 public half of the iPhone's one-time key.
+    public var key: String
+    /// Base64 AES-GCM nonce ‖ ciphertext ‖ tag.
+    public var box: String
+
+    public init(key: String, box: String) {
+        self.key = key
+        self.box = box
     }
 }
 
@@ -185,13 +234,20 @@ public struct CommandRequest: Codable, Sendable {
     public var signature: String
     /// The `Approval` that `approve` and `deny` answer.
     public var approvalId: String?
+    /// Registers the iPhone's password key when hello asked for it (`wantsPasswordKey`). Base64 X9.63.
+    public var passwordKey: String?
+    /// Opens the sealed password when hello sent a `sealedPassword` challenge.
+    public var wrappedKey: WrappedKey?
 
-    public init(deviceId: String, action: Action, nonce: String, signature: String, approvalId: String? = nil) {
+    public init(deviceId: String, action: Action, nonce: String, signature: String, approvalId: String? = nil,
+                passwordKey: String? = nil, wrappedKey: WrappedKey? = nil) {
         self.deviceId = deviceId
         self.action = action
         self.nonce = nonce
         self.signature = signature
         self.approvalId = approvalId
+        self.passwordKey = passwordKey
+        self.wrappedKey = wrappedKey
     }
 }
 
@@ -253,6 +309,20 @@ public enum SignedMessage {
     /// The exact bytes the iPhone signs. Binding the computer, device and action means a signature can't be reused elsewhere.
     public static func bytes(machineId: String, deviceId: String, action: Action, nonce: String) -> Data {
         Data("faceunlock/v1\n\(machineId)\n\(deviceId)\n\(action.rawValue)\n\(nonce)".utf8)
+    }
+
+    /// Signed instead when the command carries a password key or a wrapped key (v2); without either it's the v1 bytes,
+    /// which computers that don't seal their password expect. v2 also covers the challenge's session key, so the
+    /// computer can tell the iPhone encrypted to its own key and not to one swapped in on the way. None of the fields
+    /// can contain a line break (base64), so they can't shift.
+    public static func bytes(machineId: String, deviceId: String, action: Action, nonce: String, sessionKey: String?,
+                             passwordKey: String?, wrappedKey: WrappedKey?) -> Data {
+        // An empty password key counts as none, as in linux/protocol.go.
+        guard passwordKey?.isEmpty == false || wrappedKey != nil else {
+            return bytes(machineId: machineId, deviceId: deviceId, action: action, nonce: nonce)
+        }
+        return Data(["faceunlock/v2", machineId, deviceId, action.rawValue, nonce, sessionKey ?? "", passwordKey ?? "",
+                     wrappedKey?.key ?? "", wrappedKey?.box ?? ""].joined(separator: "\n").utf8)
     }
 }
 

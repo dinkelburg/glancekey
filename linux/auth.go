@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/ecdh"
+	"crypto/rand"
 	"encoding/base64"
 	"sync"
 	"time"
@@ -15,6 +17,12 @@ type PairedDevice struct {
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 	// PushToken is where to notify the iPhone when an approval is waiting (see validPushToken).
 	PushToken string `json:"pushToken,omitempty"`
+	// PasswordKey is the iPhone's password key (X9.63), which the password is sealed to (seal.go). Empty for an
+	// iPhone on an older app version.
+	PasswordKey []byte `json:"passwordKey,omitempty"`
+	// OpenedSealed: this iPhone has opened its sealed copy, so its password key works. Until every iPhone has,
+	// the keyring keeps a plain copy.
+	OpenedSealed bool `json:"openedSealed,omitempty"`
 }
 
 // validSignature checks the iPhone's signature over message with its paired key.
@@ -46,6 +54,8 @@ const maxOutstandingNonces = 64
 type challenge struct {
 	deviceID string
 	expires  time.Time
+	// session is the one-time key the iPhone wraps the sealed password's key to (seal.go), if hello sent one.
+	session *ecdh.PrivateKey
 }
 
 // Authenticator holds the pairing window and single-use challenges. Safe for concurrent use.
@@ -93,7 +103,7 @@ func (a *Authenticator) CompletePairing(req PairRequest) (PairedDevice, error) {
 		a.pairingToken = ""
 		return PairedDevice{}, errPairingExpired
 	}
-	if !validPairingProof(req.Proof, a.pairingToken, a.machineID, req.DeviceID, req.DeviceName, req.PublicKey) {
+	if !validPairingProof(req.Proof, a.pairingToken, a.machineID, req.DeviceID, req.DeviceName, req.PublicKey, req.PasswordKey) {
 		return PairedDevice{}, errBadPairingToken
 	}
 	if n := len(req.DeviceID); n < 1 || n > 100 {
@@ -109,11 +119,42 @@ func (a *Authenticator) CompletePairing(req PairRequest) (PairedDevice, error) {
 	if _, err := parsePublicKey(keyData); err != nil {
 		return PairedDevice{}, errBadPublicKey
 	}
+	var passwordKey []byte
+	if req.PasswordKey != "" {
+		if passwordKey, err = parsePasswordKey(req.PasswordKey); err != nil {
+			return PairedDevice{}, errBadPublicKey
+		}
+	}
 	a.pairingToken = ""
-	return PairedDevice{ID: req.DeviceID, Name: req.DeviceName, PublicKey: keyData, PairedAt: a.now()}, nil
+	return PairedDevice{ID: req.DeviceID, Name: req.DeviceName, PublicKey: keyData, PairedAt: a.now(), PasswordKey: passwordKey}, nil
+}
+
+// parsePasswordKey checks a base64 X9.63 P-256 key-agreement key.
+func parsePasswordKey(encoded string) ([]byte, error) {
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ecdh.P256().NewPublicKey(data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func (a *Authenticator) IssueNonce(deviceID string) string {
+	return a.issueNonce(deviceID, nil)
+}
+
+// IssueNonceWithSession also makes the one-time session key for a sealed password and returns its public half (X9.63).
+func (a *Authenticator) IssueNonceWithSession(deviceID string) (nonce string, sessionKey []byte, err error) {
+	session, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		return "", nil, err
+	}
+	return a.issueNonce(deviceID, session), session.PublicKey().Bytes(), nil
+}
+
+func (a *Authenticator) issueNonce(deviceID string, session *ecdh.PrivateKey) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
@@ -129,12 +170,13 @@ func (a *Authenticator) IssueNonce(deviceID string) string {
 		delete(a.nonces, oldest)
 	}
 	nonce := randomToken(32)
-	a.nonces[nonce] = challenge{deviceID: deviceID, expires: now.Add(nonceLifetime)}
+	a.nonces[nonce] = challenge{deviceID: deviceID, expires: now.Add(nonceLifetime), session: session}
 	return nonce
 }
 
-// Verify checks a signed command and returns the device that sent it. Each nonce works once.
-func (a *Authenticator) Verify(req CommandRequest, devices []PairedDevice) (PairedDevice, error) {
+// Verify checks a signed command and returns the device that sent it, with the challenge's session key if it had one.
+// Each nonce works once.
+func (a *Authenticator) Verify(req CommandRequest, devices []PairedDevice) (PairedDevice, *ecdh.PrivateKey, error) {
 	var device *PairedDevice
 	for i := range devices {
 		if devices[i].ID == req.DeviceID {
@@ -142,7 +184,7 @@ func (a *Authenticator) Verify(req CommandRequest, devices []PairedDevice) (Pair
 		}
 	}
 	if device == nil {
-		return PairedDevice{}, errUnknownDevice
+		return PairedDevice{}, nil, errUnknownDevice
 	}
 
 	a.mu.Lock()
@@ -152,13 +194,21 @@ func (a *Authenticator) Verify(req CommandRequest, devices []PairedDevice) (Pair
 	a.mu.Unlock()
 
 	if !found || c.deviceID != device.ID {
-		return PairedDevice{}, errUnknownNonce
+		return PairedDevice{}, nil, errUnknownNonce
 	}
 	if !now.Before(c.expires) {
-		return PairedDevice{}, errExpiredNonce
+		return PairedDevice{}, nil, errExpiredNonce
 	}
-	if !device.validSignature(signedMessage(a.machineID, device.ID, req.Action, req.Nonce), req.Signature) {
-		return PairedDevice{}, errBadSignature
+	message := signedMessage(a.machineID, device.ID, req.Action, req.Nonce)
+	if req.carriesPasswordKeys() {
+		sessionKey := ""
+		if c.session != nil {
+			sessionKey = base64.StdEncoding.EncodeToString(c.session.PublicKey().Bytes())
+		}
+		message = signedMessageV2(a.machineID, device.ID, req.Action, req.Nonce, sessionKey, req.PasswordKey, req.WrappedKey)
 	}
-	return *device, nil
+	if !device.validSignature(message, req.Signature) {
+		return PairedDevice{}, nil, errBadSignature
+	}
+	return *device, c.session, nil
 }

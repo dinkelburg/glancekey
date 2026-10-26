@@ -27,24 +27,31 @@ type deviceInfo struct {
 	Name       string     `json:"name"`
 	PairedAt   time.Time  `json:"pairedAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	// PasswordSealed: the password is sealed to this iPhone (seal.go).
+	PasswordSealed bool `json:"passwordSealed,omitempty"`
+	// OpenedSealed: the iPhone has opened its sealed copy before.
+	OpenedSealed bool `json:"openedSealed,omitempty"`
 }
 
 type statusInfo struct {
-	MachineName    string       `json:"machineName"`
-	MachineID      string       `json:"machineId"`
-	Relay          string       `json:"relay"`
-	RelayStatus    string       `json:"relayStatus"`
-	Screen         string       `json:"screen"`
-	Locked         *bool        `json:"locked,omitempty"`
-	LockError      string       `json:"lockError,omitempty"`
-	PasswordNeeded bool         `json:"passwordNeeded"`
-	PasswordSaved  bool         `json:"passwordSaved"`
-	Pairing        bool         `json:"pairing"`
-	Devices        []deviceInfo `json:"devices"`
+	MachineName    string `json:"machineName"`
+	MachineID      string `json:"machineId"`
+	Relay          string `json:"relay"`
+	RelayStatus    string `json:"relayStatus"`
+	Screen         string `json:"screen"`
+	Locked         *bool  `json:"locked,omitempty"`
+	LockError      string `json:"lockError,omitempty"`
+	PasswordNeeded bool   `json:"passwordNeeded"`
+	PasswordSaved  bool   `json:"passwordSaved"`
+	// PasswordInKeyring: a plain copy is in the keyring, for iPhones without a sealed one.
+	PasswordInKeyring bool         `json:"passwordInKeyring,omitempty"`
+	Pairing           bool         `json:"pairing"`
+	Devices           []deviceInfo `json:"devices"`
 }
 
 type controlResponse struct {
 	Error     string      `json:"error,omitempty"`
+	Message   string      `json:"message,omitempty"`
 	Invite    string      `json:"invite,omitempty"`
 	Expires   time.Time   `json:"expires,omitempty"`
 	Status    *statusInfo `json:"status,omitempty"`
@@ -124,7 +131,7 @@ func (a *Agent) control(request controlRequest) controlResponse {
 		token, expires := a.auth.StartPairing()
 		a.mu.Lock()
 		invite := PairingInvite{V: protocolVersion, MachineID: a.state.MachineID, MachineName: a.state.MachineName,
-			Platform: platformName(), Relay: a.state.relayURL(), Token: token}
+			Platform: platformName(), Relay: a.state.relayURL(), Token: token, WantsPasswordKey: a.screen.NeedsPassword()}
 		a.mu.Unlock()
 		return controlResponse{Invite: invite.URL(), Expires: expires}
 	case "cancel-pair":
@@ -140,6 +147,19 @@ func (a *Agent) control(request controlRequest) controlResponse {
 			approvers.Devices = append(approvers.Devices, Approver{ID: device.ID, Name: device.Name, PublicKey: device.PublicKey})
 		}
 		return controlResponse{Approvers: approvers}
+	case "set-password":
+		message, err := a.setPassword(request.Argument)
+		if err != nil {
+			return controlResponse{Error: err.Error()}
+		}
+		log.Print("Saved a new password")
+		return controlResponse{Message: message}
+	case "forget-password":
+		if err := a.forgetPassword(); err != nil {
+			return controlResponse{Error: err.Error()}
+		}
+		log.Print("Removed the saved password")
+		return controlResponse{}
 	case "unpair":
 		removed, err := a.unpair(request.Argument)
 		if err != nil {
@@ -162,8 +182,10 @@ func (a *Agent) status() *statusInfo {
 		PasswordNeeded: a.screen.NeedsPassword(),
 	}
 	for _, device := range a.state.Devices {
-		info.Devices = append(info.Devices, deviceInfo{device.ID, device.Name, device.PairedAt, device.LastUsedAt})
+		_, sealed := a.state.SealedPasswords[device.ID]
+		info.Devices = append(info.Devices, deviceInfo{device.ID, device.Name, device.PairedAt, device.LastUsedAt, sealed, device.OpenedSealed})
 	}
+	anySealed := len(a.state.SealedPasswords) > 0
 	a.mu.Unlock()
 
 	info.Pairing = a.auth.PairingActive()
@@ -174,13 +196,25 @@ func (a *Agent) status() *statusInfo {
 	}
 	if info.PasswordNeeded {
 		_, err := a.passwords.Load()
-		info.PasswordSaved = err == nil
+		info.PasswordInKeyring = err == nil
+		info.PasswordSaved = info.PasswordInKeyring || anySealed
 	}
 	return info
 }
 
 // unpair removes a device by id or (case-insensitive) name.
 func (a *Agent) unpair(which string) (PairedDevice, error) {
+	a.passwordMu.Lock()
+	defer a.passwordMu.Unlock()
+	removed, allOpened, err := a.removeDevice(which)
+	if err == nil && allOpened {
+		// The iPhone that still needed the plain copy is gone.
+		a.dropPlainCopy()
+	}
+	return removed, err
+}
+
+func (a *Agent) removeDevice(which string) (removed PairedDevice, allOpened bool, err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	var matches []int
@@ -190,21 +224,25 @@ func (a *Agent) unpair(which string) (PairedDevice, error) {
 		}
 	}
 	if len(matches) == 0 {
-		return PairedDevice{}, fmt.Errorf("no paired device called %q", which)
+		return PairedDevice{}, false, fmt.Errorf("no paired device called %q", which)
 	}
 	if len(matches) > 1 {
-		return PairedDevice{}, fmt.Errorf("several devices are called %q; use the id from `%s status`", which, agentCommand)
+		return PairedDevice{}, false, fmt.Errorf("several devices are called %q; use the id from `%s status`", which, agentCommand)
 	}
 	i := matches[0]
-	removed := a.state.Devices[i]
-	a.state.Devices = append(a.state.Devices[:i], a.state.Devices[i+1:]...)
-	return removed, a.state.save()
+	removed = a.state.Devices[i]
+	a.state.Devices = append(append([]PairedDevice(nil), a.state.Devices[:i]...), a.state.Devices[i+1:]...)
+	delete(a.state.SealedPasswords, removed.ID)
+	if err := a.state.save(); err != nil {
+		return removed, false, err
+	}
+	return removed, a.allOpened(), nil
 }
 
 func callAgent(request controlRequest) (controlResponse, error) {
 	conn, err := net.DialTimeout("unix", controlSocketPath(), 3*time.Second)
 	if err != nil {
-		return controlResponse{}, fmt.Errorf("the agent isn't running. Start it with `systemctl --user start %[1]s` (or `%[1]s run`)", agentCommand)
+		return controlResponse{}, errAgentNotRunning
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(20 * time.Second))
@@ -220,6 +258,8 @@ func callAgent(request controlRequest) (controlResponse, error) {
 	}
 	return response, nil
 }
+
+var errAgentNotRunning = fmt.Errorf("the agent isn't running. Start it with `systemctl --user start %[1]s` (or `%[1]s run`)", agentCommand)
 
 func platformName() string {
 	if runtime.GOOS == "darwin" {

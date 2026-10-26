@@ -87,8 +87,8 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSFaceIDUsageDescription: $(APP_NAME) uses Face ID to approve unlocking your computers.
-        # Only standard encryption (HTTPS and the iPhone's own signing keys), which is exempt from export rules,
-        # so App Store Connect doesn't ask about it for every upload.
+        # Only encryption built into iOS (HTTPS, and CryptoKit for the signing keys and the sealed password's key),
+        # which is exempt from export documentation, so App Store Connect doesn't ask about it for every upload.
         ITSAppUsesNonExemptEncryption: false
         # The relay is HTTPS; plain HTTP is only allowed to local addresses, for a relay running with `wrangler dev`.
         NSAppTransportSecurity:
@@ -114,3 +114,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: nl.dinkelworks.$(APP_ID)
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # iPhone only: no Mac or Vision Pro run destinations in Xcode. Whether the App Store offers the app there is a
+        # separate setting in App Store Connect (Pricing and Availability), which should be off too.
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO

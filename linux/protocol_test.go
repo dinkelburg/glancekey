@@ -61,10 +61,10 @@ func TestValidPushToken(t *testing.T) {
 }
 
 func TestCryptoKitPairingProofMatches(t *testing.T) {
-	if !validPairingProof(vectorProof, "token-1", "machine-1", "phone-1", "iPhone", vectorPublicKey) {
+	if !validPairingProof(vectorProof, "token-1", "machine-1", "phone-1", "iPhone", vectorPublicKey, "") {
 		t.Fatal("CryptoKit pairing proof rejected")
 	}
-	if validPairingProof(vectorProof, "token-2", "machine-1", "phone-1", "iPhone", vectorPublicKey) {
+	if validPairingProof(vectorProof, "token-2", "machine-1", "phone-1", "iPhone", vectorPublicKey, "") {
 		t.Fatal("proof accepted with the wrong token")
 	}
 }
@@ -82,5 +82,31 @@ func TestInviteURL(t *testing.T) {
 	var decoded PairingInvite
 	if err := json.Unmarshal(data, &decoded); err != nil || decoded != invite {
 		t.Fatalf("round trip failed: %v %+v", err, decoded)
+	}
+}
+
+// The same JSON is in the Swift tests (ProtocolTests.sealedPasswordJSON), so both sides use the same field names.
+const (
+	jsonInvite  = `{"v":2,"machineId":"m","machineName":"n","platform":"linux","relay":"https://r","token":"t","wantsPasswordKey":true}`
+	jsonHello   = `{"machineId":"m","machineName":"n","nonce":"x","wantsPasswordKey":true,"sealedPassword":{"sealKey":"S","sessionKey":"T"}}`
+	jsonPair    = `{"deviceId":"d","deviceName":"iPhone","passwordKey":"P","proof":"p","publicKey":"k"}`
+	jsonCommand = `{"action":"unlock","deviceId":"d","nonce":"x","passwordKey":"P","signature":"s","wrappedKey":{"box":"B","key":"K"}}`
+)
+
+func TestSealedPasswordJSONMatchesSwift(t *testing.T) {
+	invite, _ := json.Marshal(PairingInvite{V: 2, MachineID: "m", MachineName: "n", Platform: "linux", Relay: "https://r", Token: "t", WantsPasswordKey: true})
+	hello, _ := json.Marshal(HelloResponse{MachineID: "m", MachineName: "n", Nonce: "x", WantsPasswordKey: true,
+		SealedPassword: &SealedPasswordChallenge{SealKey: "S", SessionKey: "T"}})
+	if string(invite) != jsonInvite || string(hello) != jsonHello {
+		t.Fatalf("agent writes\n%s\n%s", invite, hello)
+	}
+	var pair PairRequest
+	var command CommandRequest
+	if json.Unmarshal([]byte(jsonPair), &pair) != nil || pair.PasswordKey != "P" {
+		t.Fatalf("pair request: %+v", pair)
+	}
+	if json.Unmarshal([]byte(jsonCommand), &command) != nil || command.PasswordKey != "P" || command.WrappedKey == nil ||
+		*command.WrappedKey != (WrappedKey{Key: "K", Box: "B"}) {
+		t.Fatalf("command: %+v", command)
 	}
 }

@@ -260,9 +260,9 @@ final class PhoneModel: ObservableObject {
             }
             _ = try await approval
 
-            let message = SignedMessage.bytes(machineId: machine.machineId, deviceId: machine.deviceId, action: action, nonce: hello.nonce)
-            let signature = try DeviceKey.sign(message, tag: machine.deviceId, context: context)
-            let response = try await machine.client.command(action, nonce: hello.nonce, signature: signature, deviceId: machine.deviceId)
+            let request = try signedCommand(action, on: machine, hello: hello, context: context)
+            let response = try await machine.client.command(action, nonce: hello.nonce, signature: request.signature, deviceId: machine.deviceId,
+                                                            passwordKey: request.passwordKey, wrappedKey: request.wrappedKey)
             if hello.machineName != machine.machineName {
                 update(machine.machineId) { $0.machineName = hello.machineName }
             }
@@ -276,6 +276,30 @@ final class PhoneModel: ObservableObject {
         }
         haptic(for: result)
         return result
+    }
+
+    private struct SignedCommand {
+        var signature: Data
+        var passwordKey: String?
+        var wrappedKey: WrappedKey?
+    }
+
+    /// Signs `action` for `hello`'s challenge. For a computer that seals its password (`PasswordSeal`) it also sends
+    /// the password key it asked for, and for an unlock the key that opens the password, wrapped to the challenge's
+    /// session key. `context` must already have passed Face ID.
+    private func signedCommand(_ action: Action, on machine: PairedMachine, hello: HelloResponse, context: LAContext) throws -> SignedCommand {
+        let passwordKey = hello.wantsPasswordKey == true ? try DeviceKey.passwordKey(tag: machine.deviceId).base64EncodedString() : nil
+        var wrappedKey: WrappedKey?
+        if action == .unlock, let sealed = hello.sealedPassword, let sealKey = Data(base64Encoded: sealed.sealKey) {
+            let secret = try DeviceKey.passwordSecret(with: sealKey, tag: machine.deviceId, context: context)
+            let key = PasswordSeal.passwordKey(sharedSecret: secret, sealKey: sealKey, machineId: machine.machineId, deviceId: machine.deviceId)
+            wrappedKey = try PasswordSeal.wrap(key, sessionKey: sealed.sessionKey, machineId: machine.machineId,
+                                               deviceId: machine.deviceId, nonce: hello.nonce)
+        }
+        let message = SignedMessage.bytes(machineId: machine.machineId, deviceId: machine.deviceId, action: action, nonce: hello.nonce,
+                                          sessionKey: hello.sealedPassword?.sessionKey, passwordKey: passwordKey, wrappedKey: wrappedKey)
+        return SignedCommand(signature: try DeviceKey.sign(message, tag: machine.deviceId, context: context),
+                             passwordKey: passwordKey, wrappedKey: wrappedKey)
     }
 
     private func haptic(for result: OperationResult) {
@@ -319,21 +343,22 @@ final class PhoneModel: ObservableObject {
             return result
         }
 
-        var requests: [(PairedMachine, String, Data)] = []
+        var requests: [(PairedMachine, String, SignedCommand)] = []
         for machine in targets {
             do {
                 let hello = try hellos[machine.machineId]!.get()
-                let message = SignedMessage.bytes(machineId: machine.machineId, deviceId: machine.deviceId, action: .unlock, nonce: hello.nonce)
-                requests.append((machine, hello.nonce, try DeviceKey.sign(message, tag: machine.deviceId, context: context)))
+                requests.append((machine, hello.nonce, try signedCommand(.unlock, on: machine, hello: hello, context: context)))
             } catch {
                 states[machine.machineId] = .finished(OperationResult(success: false, message: Self.describe(error)))
             }
         }
         let results = await withTaskGroup(of: (String, OperationResult).self) { group in
-            for (machine, nonce, signature) in requests {
+            for (machine, nonce, request) in requests {
                 group.addTask {
                     do {
-                        let response = try await machine.client.command(.unlock, nonce: nonce, signature: signature, deviceId: machine.deviceId)
+                        let response = try await machine.client.command(.unlock, nonce: nonce, signature: request.signature,
+                                                                        deviceId: machine.deviceId, passwordKey: request.passwordKey,
+                                                                        wrappedKey: request.wrappedKey)
                         return (machine.machineId, OperationResult(success: response.ok, message: response.message))
                     } catch {
                         return (machine.machineId, OperationResult(success: false, message: Self.describe(error)))
@@ -408,15 +433,15 @@ final class PhoneModel: ObservableObject {
         if let error = error as? LAError {
             switch error.code {
             case .userCancel, .appCancel, .systemCancel: return "Cancelled"
-            case .biometryNotEnrolled: return "Set up Face ID in Settings first."
-            case .biometryNotAvailable: return "Face ID isn't available. Allow it for \(Brand.name) in Settings."
-            case .biometryLockout: return "Face ID is locked. Unlock your iPhone with its passcode, then try again."
-            case .authenticationFailed: return "Face ID didn't recognise you."
+            case .biometryNotEnrolled: return "Set up \(Biometry.name) in Settings first."
+            case .biometryNotAvailable: return "\(Biometry.name) isn't available. Allow it for \(Brand.name) in Settings."
+            case .biometryLockout: return "\(Biometry.name) is locked. Unlock your iPhone with its passcode, then try again."
+            case .authenticationFailed: return "\(Biometry.name) didn't recognise you."
             default: return error.localizedDescription
             }
         }
         if let error = error as? LocalizedError, let description = error.errorDescription { return description }
-        return "Couldn't sign the request. If you changed Face ID since pairing, pair this iPhone again."
+        return "Couldn't sign the request. If you changed \(Biometry.name) since pairing, pair this iPhone again."
     }
 
     // MARK: - Pairing
@@ -462,8 +487,9 @@ final class PhoneModel: ObservableObject {
         do {
             let publicKey = try DeviceKey.create(tag: deviceId)
             do {
-                let response = try await RelayClient(invite: invite).pair(invite: invite, deviceId: deviceId,
-                                                                          deviceName: UIDevice.current.name, publicKey: publicKey)
+                let passwordKey = invite.wantsPasswordKey == true ? try DeviceKey.passwordKey(tag: deviceId) : nil
+                let response = try await RelayClient(invite: invite).pair(invite: invite, deviceId: deviceId, deviceName: UIDevice.current.name,
+                                                                          publicKey: publicKey, passwordKey: passwordKey)
                 if let previous = machines.first(where: { $0.machineId == response.machineId }) {
                     DeviceKey.delete(tag: previous.deviceId)
                 }
