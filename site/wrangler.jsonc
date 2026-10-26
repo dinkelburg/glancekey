@@ -10,7 +10,7 @@
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "404-page"
   },
-  // glancekey.com and glancekey.dinkel.works redirect here (redirect/wrangler.jsonc).
+  // glancekey.com and glancekey.dinkel.works redirect here through Cloudflare Redirect Rules in their zones.
   "routes": [{ "pattern": "www.glancekey.com", "custom_domain": true }],
   "workers_dev": false,
   "preview_urls": false,
