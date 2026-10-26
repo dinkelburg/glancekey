@@ -8,16 +8,16 @@ public struct PairedDevice: Codable, Identifiable, Equatable, Sendable {
     public var publicKey: Data
     public var pairedAt: Date
     public var lastUsedAt: Date?
-    /// ntfy topic to notify when an approval is waiting (see `Notifications`).
-    public var notifyTopic: String?
+    /// Where to notify the iPhone when an approval is waiting (see `PushToken`).
+    public var pushToken: String?
 
-    public init(id: String, name: String, publicKey: Data, pairedAt: Date, lastUsedAt: Date? = nil, notifyTopic: String? = nil) {
+    public init(id: String, name: String, publicKey: Data, pairedAt: Date, lastUsedAt: Date? = nil, pushToken: String? = nil) {
         self.id = id
         self.name = name
         self.publicKey = publicKey
         self.pairedAt = pairedAt
         self.lastUsedAt = lastUsedAt
-        self.notifyTopic = notifyTopic
+        self.pushToken = pushToken
     }
 
     /// Checks the iPhone's signature over `message` with its paired key.

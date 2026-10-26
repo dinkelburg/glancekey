@@ -25,6 +25,7 @@ iPhone ──HTTPS──▶ relay (relay.glancekey.com, Cloudflare) ◀──Web
   - The computer hands out a single-use nonce, valid for 60 s.
   - It only accepts a signature over that nonce, the computer's ID, the iPhone's ID and the action.
 - **The relay is not trusted.** It only passes messages along. It can't forge or replay commands, and it never sees the pairing code: the iPhone sends an HMAC proof tied to its key instead.
+- **Notifications only name the computer.** A computer that waits for you asks the relay to notify your iPhone; the relay sends "… is waiting for you" through Apple's push service and stores nothing. What's waiting travels over the relay when the app asks, not in the notification.
 - **Relay slot:** each computer claims its slot on the relay with a secret, so nobody else can connect in its place.
 - **Login passwords stay on each computer:**
   - Mac: in the login keychain. Linux: in the GNOME keyring.
@@ -44,9 +45,8 @@ iPhone ──HTTPS──▶ relay (relay.glancekey.com, Cloudflare) ◀──Web
 ### iPhone
 1. Connect it with a cable and enable Developer Mode.
 2. Run `scripts/install-iphone.sh`.
-3. Trust the developer in Settings › General › VPN & Device Management.
 
-With a free Apple developer account the app stops opening after 7 days. Re-run the script to renew it.
+It's signed for development with the Apple Developer Program team, so it keeps opening for a year. Re-run the script to renew it.
 
 ### Linux (Omarchy)
 ```sh
@@ -83,19 +83,30 @@ Set it up after pairing, and again after pairing another iPhone or updating Glan
 
 How it works: PAM runs the checker (`glancekey-agent pam`) as root. It asks the GlanceKey agent or Mac app to show the request on your iPhone, then verifies the iPhone's signature against `approvers.json`. Problems are logged to syslog under `glancekey` (`journalctl -t glancekey`).
 
-**Notifications:** in the iPhone app, turn on **Notify me with ntfy** and subscribe to the topic it shows in the free [ntfy app](https://apps.apple.com/app/ntfy/id1625396347). Computers then post "… is waiting for you" to it; tap it to open GlanceKey. Only the computer's name goes through ntfy.
+**Notifications:** in the iPhone app, turn on **Notify me**. When a computer waits for you, your iPhone gets "… is waiting for you"; tap it to open GlanceKey. The relay sends it through Apple's push service (see [Notifications](#notifications)).
 
 On Linux this is mostly a convenience: the login password the agent keeps for Omarchy's lock screen is in the GNOME keyring, which any program running as you can read, and on Linux it's also your sudo password.
 
 ## Mac password dialogs
 
-When a Mac dialog asks for your password, the Mac app puts it on your iPhone (and notifies ntfy). Tap **Approve** and look at the phone: the Mac app types your saved login password into the dialog and submits it. **Deny** presses Cancel. Handle the dialog on the Mac instead and the request disappears from the phone.
+When a Mac dialog asks for your password, the Mac app puts it on your iPhone (and notifies it). Tap **Approve** and look at the phone: the Mac app types your saved login password into the dialog and submits it. **Deny** presses Cancel. Handle the dialog on the Mac instead and the request disappears from the phone.
 
 It covers two kinds of dialogs:
 - "… is trying to unlock" with **Use Password…** (LocalAuthentication, `coreautha`): 1Password, Safari passwords, and other apps that use Touch ID.
 - Administrator dialogs (`SecurityAgent`): System Settings, installers, `osascript … with administrator privileges`.
 
 Turn it off with **Fill in password dialogs from iPhone** in the menu bar item. It needs the saved password and Accessibility access.
+
+## Notifications
+
+The iPhone app gets a push token from Apple and gives it to its computers in every `hello`. A computer that starts waiting for an approval sends `{"notify": {"machineName", "pushTokens"}}` over its WebSocket, and the relay pushes the notification with the app's APNs key. It tries production first and the sandbox second, because an app installed from Xcode has a sandbox token. A newer notification for the same computer replaces the older one, they expire after two minutes, and a computer can send six a minute.
+
+Setting up the key (once, or after revoking it):
+1. In the Apple Developer account, Certificates, Identifiers & Profiles › Keys › +: name it, tick **Apple Push Notifications service (APNs)**, and download `AuthKey_<key id>.p8`. Apple only lets you download it once; keep it in 1Password.
+2. Put the key ID and the team ID in `relay/wrangler.jsonc` (`APNS_KEY_ID`, `APNS_TEAM_ID`), and the key itself in a secret: `cd relay && npx wrangler secret put APNS_KEY < AuthKey_<key id>.p8`.
+3. `npx wrangler deploy`.
+
+Without the key the relay works as before and only logs that it can't notify. A self-hosted relay needs your own app build and key, since APNs only delivers to apps of the key's team. `wrangler dev` can't reach APNs (it needs HTTP/2), so notifications only work from a deployed relay.
 
 ## Limitations
 

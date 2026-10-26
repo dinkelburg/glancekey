@@ -37,8 +37,6 @@ final class AppModel: ObservableObject {
         static let didSetUpLoginItem = "didSetUpLoginItem"
         /// Override with `defaults write nl.dinkelworks.<Brand.id>.mac relayURL http://localhost:8787` for testing.
         static let relayURL = "relayURL"
-        /// Where to post ntfy notifications; https://ntfy.sh unless overridden for testing.
-        static let ntfyURL = "ntfyURL"
         static let fillsPasswordDialogs = "fillsPasswordDialogs"
     }
 
@@ -266,9 +264,8 @@ final class AppModel: ObservableObject {
 
     private func hello(_ request: HelloRequest) throws -> (status: Int, body: Data) {
         guard let index = devices.firstIndex(where: { $0.id == request.deviceId }) else { throw AuthError.unknownDevice }
-        if let topic = request.notifyTopic, topic != (devices[index].notifyTopic ?? ""),
-           topic.isEmpty || Notifications.isValidTopic(topic) {
-            devices[index].notifyTopic = topic.isEmpty ? nil : topic
+        if let token = request.pushToken, token != (devices[index].pushToken ?? ""), token.isEmpty || PushToken.isValid(token) {
+            devices[index].pushToken = token.isEmpty ? nil : token
             saveDevices()
         }
         let nonce = authenticator.issueNonce(for: request.deviceId)
@@ -550,25 +547,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Posts to the paired iPhones' ntfy topics; tapping the notification opens the app.
+    /// Asks the relay to notify the paired iPhones that something is waiting; tapping the notification opens the app.
     private func notifyPhones() {
-        let server = UserDefaults.standard.string(forKey: Defaults.ntfyURL).flatMap(URL.init(string:)) ?? Notifications.server
-        for topic in Set(devices.compactMap(\.notifyTopic).filter(Notifications.isValidTopic)) {
-            var request = URLRequest(url: server, timeoutInterval: 10)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: [
-                "topic": topic,
-                "title": "\(machineName) is waiting for you",
-                "message": "Tap to approve or deny with \(Brand.name).",
-                "click": Notifications.openURL.absoluteString,
-                "priority": 4,
-                "tags": ["closed_lock_with_key"],
-            ] as [String: Any])
-            URLSession.shared.dataTask(with: request) { _, response, error in
-                guard error != nil || ((response as? HTTPURLResponse)?.statusCode ?? 0) >= 300 else { return }
-                Task { @MainActor in AppModel.shared.note("Couldn't send the notification to your iPhone", isError: true) }
-            }.resume()
+        var tokens: [String] = []
+        for token in devices.compactMap(\.pushToken) where PushToken.isValid(token) && !tokens.contains(token) {
+            tokens.append(token)
+        }
+        guard !tokens.isEmpty else { return }
+        let notification = RelayNotification(machineName: machineName, pushTokens: tokens)
+        Task {
+            if await connection?.notify(notification) != true {
+                note("Couldn't send the notification to your iPhone", isError: true)
+            }
         }
     }
 

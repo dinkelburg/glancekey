@@ -13,8 +13,8 @@ type PairedDevice struct {
 	PublicKey  []byte     `json:"publicKey"`
 	PairedAt   time.Time  `json:"pairedAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
-	// NotifyTopic is the iPhone's ntfy topic, for notifications when an approval is waiting.
-	NotifyTopic string `json:"notifyTopic,omitempty"`
+	// PushToken is where to notify the iPhone when an approval is waiting (see validPushToken).
+	PushToken string `json:"pushToken,omitempty"`
 }
 
 // validSignature checks the iPhone's signature over message with its paired key.

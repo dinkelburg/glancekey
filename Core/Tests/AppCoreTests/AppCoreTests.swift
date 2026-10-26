@@ -155,12 +155,13 @@ struct ProtocolTests {
         #expect(try JSONDecoder().decode(CommandRequest.self, from: command).approvalId == nil)
     }
 
-    @Test func notifyTopics() {
-        let topic = Notifications.newTopic()
-        #expect(Notifications.isValidTopic(topic))
-        #expect(!Notifications.isValidTopic("short"))
-        #expect(!Notifications.isValidTopic("\(Brand.id)-abc/../../admin"))
-        #expect(!Notifications.isValidTopic("\(Brand.id)-abcdefghij?x=1"))
+    @Test func pushTokens() {
+        let token = String(repeating: "0123456789abcdef", count: 4)
+        #expect(PushToken.isValid(token))
+        #expect(PushToken.isValid(token.uppercased()))
+        #expect(!PushToken.isValid("abcdef"))
+        #expect(!PushToken.isValid(token + "/../x"))
+        #expect(!PushToken.isValid(String(repeating: "ａ", count: 64)))
     }
 }
 

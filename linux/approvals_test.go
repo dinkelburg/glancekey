@@ -10,8 +10,6 @@ import (
 	"encoding/json"
 	"io"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"os/user"
@@ -272,7 +270,7 @@ func TestCheckerSkipsWhenPhoneUnreachable(t *testing.T) {
 	}
 }
 
-func TestHelloReportsLockAndSavesTopic(t *testing.T) {
+func TestHelloReportsLockAndSavesPushToken(t *testing.T) {
 	screen := &fakeScreen{}
 	agent := newTestAgent(t, screen, &memoryPasswords{})
 	phone := newPhone(t, agent)
@@ -280,43 +278,51 @@ func TestHelloReportsLockAndSavesTopic(t *testing.T) {
 	phone.pair(token)
 	screen.Lock()
 
-	topic := appID + "-abcdefghij123"
-	_, body := phone.call("/v1/hello", HelloRequest{DeviceID: phone.deviceID, NotifyTopic: &topic})
+	pushToken := strings.Repeat("0123456789abcdef", 4)
+	_, body := phone.call("/v1/hello", HelloRequest{DeviceID: phone.deviceID, PushToken: &pushToken})
 	if body["locked"] != true {
 		t.Fatalf("hello: %v", body)
 	}
-	if reloaded, _ := loadState(); reloaded.Devices[0].NotifyTopic != topic {
-		t.Fatal("topic not saved")
+	if reloaded, _ := loadState(); reloaded.Devices[0].PushToken != pushToken {
+		t.Fatal("push token not saved")
 	}
 	bad := "../../evil"
-	phone.call("/v1/hello", HelloRequest{DeviceID: phone.deviceID, NotifyTopic: &bad})
+	phone.call("/v1/hello", HelloRequest{DeviceID: phone.deviceID, PushToken: &bad})
 	phone.call("/v1/hello", HelloRequest{DeviceID: phone.deviceID})
-	if agent.state.Devices[0].NotifyTopic != topic {
-		t.Fatal("topic changed by an invalid or missing value")
+	if agent.state.Devices[0].PushToken != pushToken {
+		t.Fatal("push token changed by an invalid or missing value")
 	}
 	empty := ""
-	phone.call("/v1/hello", HelloRequest{DeviceID: phone.deviceID, NotifyTopic: &empty})
-	if agent.state.Devices[0].NotifyTopic != "" {
-		t.Fatal("topic not removed")
+	phone.call("/v1/hello", HelloRequest{DeviceID: phone.deviceID, PushToken: &empty})
+	if agent.state.Devices[0].PushToken != "" {
+		t.Fatal("push token not removed")
 	}
 }
 
-func TestNotificationPost(t *testing.T) {
-	received := make(chan map[string]any, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
-		received <- body
-	}))
-	defer server.Close()
-	t.Setenv(envPrefix+"NTFY", server.URL)
-	if err := postNotification(appID+"-abcdefghij123", "Ruben’s MacBook"); err != nil {
-		t.Fatal(err)
+func TestWaitingApprovalNotifiesThroughRelay(t *testing.T) {
+	s := newApprovalSetup(t)
+	pushToken := strings.Repeat("0123456789abcdef", 4)
+	s.phone.call("/v1/hello", HelloRequest{DeviceID: s.phone.deviceID, PushToken: &pushToken})
+	sent := make(chan []byte, 1)
+	s.agent.setRelaySender(func(data []byte) error { sent <- data; return nil })
+
+	result := s.check("5s")
+	var notification RelayNotification
+	select {
+	case data := <-sent:
+		if err := json.Unmarshal(data, &notification); err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no notification sent")
 	}
-	body := <-received
-	if body["topic"] != appID+"-abcdefghij123" || body["click"] != notifyOpenURL || !strings.Contains(body["title"].(string), "Ruben’s MacBook") {
-		t.Fatalf("unexpected notification %v", body)
+	if notification.Notify.MachineName != s.agent.machineName() || len(notification.Notify.PushTokens) != 1 ||
+		notification.Notify.PushTokens[0] != pushToken {
+		t.Fatalf("unexpected notification %+v", notification)
 	}
+	approval := s.phone.waitForApproval()
+	s.phone.answer(actionDeny, approval, "")
+	exitStatus(t, result)
 }
 
 func TestLoadApproversRejectsUnsafeFiles(t *testing.T) {

@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Builds the iPhone app and installs it on a paired iPhone (USB, or Wi-Fi once paired in Xcode).
 # Usage: scripts/install-iphone.sh [device-udid]
-# With a free Apple developer account the app stops opening after 7 days; run this again to renew it.
+# It is signed for development, so it keeps opening as long as its provisioning profile lasts (a year); run this
+# again to renew it.
 set -euo pipefail
 cd "${0:A:h}/.."
 source scripts/brand.sh

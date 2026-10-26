@@ -24,6 +24,7 @@ needs linux/brand.go "defaultRelay += \"https://$relay_host\""
 needs relay/src/index.ts "^const APP_NAME = \"$APP_NAME\";"
 needs relay/wrangler.jsonc "\"name\": \"$APP_ID-relay\""
 needs relay/wrangler.jsonc "\"pattern\": \"$relay_host\""
+needs relay/wrangler.jsonc "\"APNS_TOPIC\": \"$BUNDLE_ID\""
 
 definitions=(project.yml Core/Sources/AppCore/Brand.swift linux/brand.go relay/wrangler.jsonc)
 stray=$(git grep --untracked -n -i -e "$APP_ID" -- . ':!*.md' ':!site' ${definitions/#/:!} |

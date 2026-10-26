@@ -36,22 +36,22 @@
 
     <h2>What stays on your devices</h2>
     <ul>
-      <li><strong>On your iPhone:</strong> the key that signs your approvals, kept in your iPhone’s secure hardware, which never lets it out; the list of computers you paired; and your notification topic if you turn notifications on.</li>
-      <li><strong>On your computer:</strong> your login password, in the Mac keychain or the GNOME keyring; the public keys of the iPhones you paired; and the secret the computer uses to connect to the relay.</li>
+      <li><strong>On your iPhone:</strong> the key that signs your approvals, kept in your iPhone’s secure hardware, which never lets it out; the list of computers you paired; and, if you turn notifications on, its notification address.</li>
+      <li><strong>On your computer:</strong> your login password, in the Mac keychain or the GNOME keyring; the public keys of the iPhones you paired; the secret the computer uses to connect to the relay; and, if you turn notifications on, your iPhone’s notification address.</li>
     </ul>
     <p>None of this is sent to us.</p>
 
     <h2>The relay</h2>
     <p>Your iPhone and your computers talk through a relay at relay.glancekey.com, which runs on Cloudflare. All traffic to it is encrypted.</p>
     <ul>
-      <li><strong>What passes through:</strong> the messages between your iPhone and your computers, such as whether a computer is locked, unlock commands, and approval requests, which include the command or dialog that’s waiting for you. Every action is signed by your iPhone and checked by your computer, so the relay can’t change or forge them.</li>
+      <li><strong>What passes through:</strong> the messages between your iPhone and your computers, such as whether a computer is locked, unlock commands, and approval requests, which include the command or dialog that’s waiting for you. If you turn notifications on, also your iPhone’s notification address and the name of the computer that’s waiting. Every action is signed by your iPhone and checked by your computer, so the relay can’t change or forge them.</li>
       <li><strong>What it stores:</strong> one thing per computer, a one-way fingerprint of the secret the computer uses to claim its place on the relay. The messages themselves aren’t stored.</li>
       <li><strong>Cloudflare:</strong> like any network, Cloudflare processes connection data such as IP addresses to deliver traffic, and keeps the relay’s request logs for a few days for troubleshooting. See <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare’s privacy policy</a>.</li>
     </ul>
     <p>You can run your own relay instead. Then nothing passes through ours.</p>
 
     <h2>Notifications</h2>
-    <p>Notifications are optional. If you turn them on, your computers post a short message to <a href="https://ntfy.sh">ntfy.sh</a>, a third-party service, under a random topic your iPhone picked. The message only contains the computer’s name. ntfy’s own <a href="https://docs.ntfy.sh/privacy/">privacy policy</a> applies to it.</p>
+    <p>Notifications are optional. If you turn them on, Apple gives your iPhone an address for notifications, which your iPhone passes to the computers you paired. When a computer waits for your approval, the relay asks Apple to deliver a notification to that address, and doesn’t keep either. The notification only contains the computer’s name. Apple’s <a href="https://www.apple.com/legal/privacy/">privacy policy</a> applies to its delivery.</p>
 
     <h2>Crash reports</h2>
     <p>If you chose to share analytics with app developers in your iPhone’s settings, Apple may pass anonymous crash reports on to us. You can turn this off in Settings › Privacy &amp; Security › Analytics &amp; Improvements.</p>

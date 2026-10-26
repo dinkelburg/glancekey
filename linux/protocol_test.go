@@ -45,15 +45,17 @@ func TestCryptoKitApprovalSignatureVerifies(t *testing.T) {
 	}
 }
 
-func TestValidTopic(t *testing.T) {
-	for topic, want := range map[string]bool{
-		appID + "-AbC_123-xyz": true,
-		"short":                false,
-		appID + "-abc/../x":    false,
-		appID + "-abcdefghij?": false,
+func TestValidPushToken(t *testing.T) {
+	token := strings.Repeat("0123456789abcdef", 4)
+	for value, want := range map[string]bool{
+		token:                   true,
+		strings.ToUpper(token):  true,
+		"abcdef":                false,
+		token + "/../x":         false,
+		strings.Repeat("ａ", 64): false,
 	} {
-		if validTopic(topic) != want {
-			t.Errorf("validTopic(%q) != %v", topic, want)
+		if validPushToken(value) != want {
+			t.Errorf("validPushToken(%q) != %v", value, want)
 		}
 	}
 }

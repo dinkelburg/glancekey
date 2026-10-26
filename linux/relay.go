@@ -81,6 +81,8 @@ func (a *Agent) serveRelay(ctx context.Context) (bool, error) {
 		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		return conn.WriteMessage(websocket.TextMessage, data)
 	}
+	a.setRelaySender(write)
+	defer a.setRelaySender(nil)
 
 	done := make(chan struct{})
 	defer close(done)

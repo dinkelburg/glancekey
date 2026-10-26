@@ -6,6 +6,10 @@ import { DurableObject } from "cloudflare:workers";
 //
 // The relay is not trusted: every command is signed by the iPhone's Secure Enclave key and checked on the
 // computer, and pairing proves knowledge of the QR code without sending it. The relay only routes.
+//
+// It also sends the iPhone's notifications: when a computer waits for an approval, it sends
+// {"notify": {"machineName", "pushTokens"}} over its WebSocket and the relay pushes "<machineName> is waiting for
+// you" through Apple's push service (APNs), signed with the app's APNs key. Neither is stored.
 
 // The app's name, as in Core/Sources/AppCore/Brand.swift, which explains how to rename the app. The relay's
 // own name and address are in wrangler.jsonc.
@@ -13,6 +17,13 @@ const APP_NAME = "GlanceKey";
 
 export interface Env {
   MACHINES: DurableObjectNamespace<Machine>;
+  /// The APNs key (the .p8 file's contents), a secret: `npx wrangler secret put APNS_KEY < AuthKey_<id>.p8`.
+  /// Without it the relay sends no notifications.
+  APNS_KEY?: string;
+  /// The rest is in wrangler.jsonc: the key's ID, the Apple team that owns it and the iPhone app's bundle ID.
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
+  APNS_TOPIC?: string;
 }
 
 interface Pending {
@@ -24,6 +35,10 @@ interface Pending {
 const MACHINE_ID = /^[A-Za-z0-9-]{8,64}$/;
 const MAX_BODY = 16 * 1024;
 const ANSWER_TIMEOUT_MS = 25_000;
+const PUSH_TOKEN = /^[0-9A-Fa-f]{64,200}$/;
+const MAX_PUSH_TOKENS = 10;
+/// Notifications a computer may send per minute. Each one is a password prompt, so a few are plenty.
+const MAX_NOTIFICATIONS_PER_MINUTE = 6;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -43,6 +58,7 @@ export default {
 
 export class Machine extends DurableObject<Env> {
   private pending = new Map<string, Pending>();
+  private notifiedAt: number[] = [];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -117,12 +133,13 @@ export class Machine extends DurableObject<Env> {
 
   async webSocketMessage(_socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (typeof message !== "string") return;
-    let answer: { id?: unknown; status?: unknown; body?: unknown };
+    let answer: { id?: unknown; status?: unknown; body?: unknown; notify?: unknown };
     try {
       answer = JSON.parse(message);
     } catch {
       return;
     }
+    if (answer.notify !== undefined) return this.notify(answer.notify);
     if (typeof answer.id !== "string") return;
     const pending = this.pending.get(answer.id);
     if (!pending) return;
@@ -152,6 +169,53 @@ export class Machine extends DurableObject<Env> {
     }
   }
 
+  /// Pushes "<machineName> is waiting for you" to the iPhones the computer named. Only the computer's own
+  /// connection gets here, and the text is fixed apart from its name, so it can't push anything else.
+  private async notify(request: unknown): Promise<void> {
+    const { machineName, pushTokens } = (request ?? {}) as { machineName?: unknown; pushTokens?: unknown };
+    if (typeof machineName !== "string" || !machineName.trim() || !Array.isArray(pushTokens)) return;
+    const tokens = [...new Set(pushTokens.filter((token): token is string => typeof token === "string" && PUSH_TOKEN.test(token)))];
+    if (tokens.length === 0) return;
+    if (tokens.length > MAX_PUSH_TOKENS) {
+      console.log(`A computer named ${tokens.length} iPhones; notifying the first ${MAX_PUSH_TOKENS}.`);
+      tokens.length = MAX_PUSH_TOKENS;
+    }
+
+    const now = Date.now();
+    this.notifiedAt = this.notifiedAt.filter((time) => now - time < 60_000);
+    if (this.notifiedAt.length >= MAX_NOTIFICATIONS_PER_MINUTE) return;
+    this.notifiedAt.push(now);
+
+    const { APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC } = this.env;
+    if (!APNS_KEY || !APNS_KEY_ID || !APNS_TEAM_ID || !APNS_TOPIC) {
+      console.log("Not sending a notification: the APNs key isn't set up.");
+      return;
+    }
+    const name = Array.from(machineName.trim()).slice(0, 100).join("");
+    const payload = JSON.stringify({
+      aps: {
+        alert: { title: `${name} is waiting for you`, body: `Tap to approve or deny with ${APP_NAME}.` },
+        sound: "default",
+        "interruption-level": "time-sensitive",
+      },
+    });
+    try {
+      const authorization = `bearer ${await providerToken(APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID)}`;
+      await Promise.all(tokens.map((token) => push(token, payload, {
+        authorization,
+        "apns-topic": APNS_TOPIC,
+        "apns-push-type": "alert",
+        "apns-priority": "10",
+        // Requests stop waiting within two minutes; a later notification would point at nothing.
+        "apns-expiration": String(Math.floor(now / 1000) + 120),
+        // A newer notification for this computer replaces the previous one (the id is 64 hex digits, APNs' limit).
+        "apns-collapse-id": this.ctx.id.toString(),
+      })));
+    } catch (error) {
+      console.log(`Couldn't send a notification: ${error}`);
+    }
+  }
+
   /// The newest open connection (tagged with its connect time).
   private currentAgent(): WebSocket | undefined {
     let newest: WebSocket | undefined;
@@ -166,6 +230,39 @@ export class Machine extends DurableObject<Env> {
     }
     return newest;
   }
+}
+
+const APNS_HOSTS = ["https://api.push.apple.com", "https://api.sandbox.push.apple.com"];
+
+/// Sends to production APNs, or to the sandbox for an app installed from Xcode, whose tokens only work there.
+async function push(token: string, payload: string, headers: Record<string, string>): Promise<void> {
+  for (const host of APNS_HOSTS) {
+    const response = await fetch(`${host}/3/device/${token}`, { method: "POST", headers, body: payload });
+    if (response.ok) return;
+    const reason = await response.json<{ reason?: string }>().then((body) => body.reason, () => undefined);
+    if (reason === "BadDeviceToken" && host !== APNS_HOSTS[APNS_HOSTS.length - 1]) continue;
+    console.log(`APNs refused a notification: ${response.status} ${reason ?? ""}`);
+    return;
+  }
+}
+
+/// APNs takes a JWT signed with the APNs key, renewed between 20 and 60 minutes after it was made.
+let cachedProviderToken: { value: string; madeAt: number } | undefined;
+
+async function providerToken(pem: string, keyId: string, teamId: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedProviderToken && now - cachedProviderToken.madeAt < 45 * 60) return cachedProviderToken.value;
+  const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----|\s/g, "")), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("pkcs8", der, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const encode = (value: object) => base64URL(new TextEncoder().encode(JSON.stringify(value)));
+  const unsigned = `${encode({ alg: "ES256", kid: keyId })}.${encode({ iss: teamId, iat: now })}`;
+  const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(unsigned));
+  cachedProviderToken = { value: `${unsigned}.${base64URL(new Uint8Array(signature))}`, madeAt: now };
+  return cachedProviderToken.value;
+}
+
+function base64URL(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function json(status: number, value: unknown): Response {

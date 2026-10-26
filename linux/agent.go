@@ -27,7 +27,9 @@ type Agent struct {
 	state       *State
 	busy        bool
 	relayStatus string
-	approvals   map[string]*pendingApproval
+	// toRelay sends a message over the relay connection while there is one.
+	toRelay   func([]byte) error
+	approvals map[string]*pendingApproval
 }
 
 func newAgent(state *State, screen Screen, passwords PasswordStore) *Agent {
@@ -110,8 +112,8 @@ func (a *Agent) hello(body []byte) (any, error) {
 			continue
 		}
 		known = true
-		if topic := req.NotifyTopic; topic != nil && *topic != device.NotifyTopic && (*topic == "" || validTopic(*topic)) {
-			a.state.Devices[i].NotifyTopic = *topic
+		if token := req.PushToken; token != nil && *token != device.PushToken && (*token == "" || validPushToken(*token)) {
+			a.state.Devices[i].PushToken = *token
 			if err := a.state.save(); err != nil {
 				log.Printf("Couldn't save state: %v", err)
 			}
@@ -267,6 +269,12 @@ func (a *Agent) setRelayStatus(status string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.relayStatus = status
+}
+
+func (a *Agent) setRelaySender(send func([]byte) error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.toRelay = send
 }
 
 func waitFor(timeout time.Duration, condition func() bool) bool {

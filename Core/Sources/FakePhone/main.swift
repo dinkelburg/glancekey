@@ -72,7 +72,7 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 let usage = """
 usage: fake-phone pair <pairing-url-or-code>
        fake-phone unlock | lock | status
-       fake-phone hello [--topic <ntfy-topic>|--topic ""]   # lock state and waiting approvals, no signature
+       fake-phone hello [--push-token <hex>|--push-token ""]  # lock state and waiting approvals, no signature
        fake-phone approve [--wait <seconds>]                  # approves the first waiting request
        fake-phone approve-tampered [--wait <seconds>]         # signs a different command; must be rejected
        fake-phone deny [--wait <seconds>]
@@ -84,7 +84,7 @@ switch arguments.first {
 case "hello":
     let state = loadState()
     do {
-        let hello = try await state.client.hello(deviceId: state.deviceId, notifyTopic: option("--topic"))
+        let hello = try await state.client.hello(deviceId: state.deviceId, pushToken: option("--push-token"))
         let approvals = (hello.approvals ?? []).map {
             ["id": $0.id, "title": $0.title, "detail": $0.detail, "expiresIn": $0.expiresIn] as [String: Any]
         }

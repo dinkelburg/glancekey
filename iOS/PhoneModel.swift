@@ -3,6 +3,7 @@ import Foundation
 import LocalAuthentication
 import SwiftUI
 import UIKit
+import UserNotifications
 
 struct PairedMachine: Codable, Identifiable, Equatable {
     var id: String { machineId }
@@ -55,7 +56,7 @@ final class PhoneModel: ObservableObject {
         static let machines = "pairedMachines"
         static let autoUnlock = "autoUnlockOnOpen"
         static let notifications = "notificationsEnabled"
-        static let notifyTopic = "notifyTopic"
+        static let pushToken = "pushToken"
     }
 
     @Published private(set) var machines: [PairedMachine]
@@ -68,14 +69,23 @@ final class PhoneModel: ObservableObject {
     @Published var autoUnlockOnOpen: Bool {
         didSet { UserDefaults.standard.set(autoUnlockOnOpen, forKey: Defaults.autoUnlock) }
     }
-    /// Computers notify `notifyTopic` through ntfy when they wait for an approval.
+    /// Computers notify this iPhone when they wait for an approval: the relay sends Apple a notification for
+    /// `pushToken`. Turning it on asks for permission first.
     @Published var notificationsEnabled: Bool {
         didSet {
             UserDefaults.standard.set(notificationsEnabled, forKey: Defaults.notifications)
-            Task { await refresh() }
+            if notificationsEnabled, !oldValue {
+                Task { await enableNotifications() }
+            } else if !notificationsEnabled {
+                notificationProblem = nil
+                Task { await refresh() }
+            }
         }
     }
-    let notifyTopic: String
+    /// Why notifications don't work, if they don't.
+    @Published var notificationProblem: String?
+    /// Where Apple delivers this iPhone's notifications; nil until Apple hands it over.
+    private var pushToken: String?
 
     private struct InFlight {
         let id = UUID()
@@ -95,12 +105,7 @@ final class PhoneModel: ObservableObject {
         machines = defaults.data(forKey: Defaults.machines).flatMap { try? JSONDecoder().decode([PairedMachine].self, from: $0) } ?? []
         autoUnlockOnOpen = defaults.object(forKey: Defaults.autoUnlock) as? Bool ?? true
         notificationsEnabled = defaults.bool(forKey: Defaults.notifications)
-        if let topic = defaults.string(forKey: Defaults.notifyTopic), Notifications.isValidTopic(topic) {
-            notifyTopic = topic
-        } else {
-            notifyTopic = Notifications.newTopic()
-            defaults.set(notifyTopic, forKey: Defaults.notifyTopic)
-        }
+        pushToken = defaults.string(forKey: Defaults.pushToken)
     }
 
     func state(for machine: PairedMachine) -> OperationState {
@@ -130,13 +135,13 @@ final class PhoneModel: ObservableObject {
 
     /// Asks every paired computer whether it's locked and what it's waiting for, all at once.
     func refresh() async {
-        // Sending "" when notifications are off makes the computers forget the topic.
-        let topic = notificationsEnabled ? notifyTopic : ""
+        // Sending "" when notifications are off makes the computers forget the token.
+        let token = notificationsEnabled ? pushToken : ""
         let results = await withTaskGroup(of: (PairedMachine, Result<HelloResponse, Error>).self) { group in
             for machine in machines {
                 group.addTask {
                     do {
-                        return (machine, .success(try await machine.client.hello(deviceId: machine.deviceId, notifyTopic: topic)))
+                        return (machine, .success(try await machine.client.hello(deviceId: machine.deviceId, pushToken: token)))
                     } catch {
                         return (machine, .failure(error))
                     }
@@ -414,11 +419,6 @@ final class PhoneModel: ObservableObject {
     func handle(url: URL) {
         autoUnlockTask?.cancel()
         guard url.scheme == Brand.urlScheme else { return }
-        if url.host == Notifications.openURL.host {
-            // The notification of a waiting approval: do what's waiting, whatever the open setting.
-            Task { await smartOpen() }
-            return
-        }
         Task { await pair(code: url.absoluteString) }
     }
 
@@ -465,6 +465,33 @@ final class PhoneModel: ObservableObject {
         save()
     }
 
+    // MARK: - Notifications
+
+    func enableNotifications() async {
+        let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
+        guard granted else {
+            notificationsEnabled = false
+            notificationProblem = "Allow notifications for \(Brand.name) in Settings, then turn this on again."
+            return
+        }
+        notificationProblem = nil
+        UIApplication.shared.registerForRemoteNotifications()
+    }
+
+    func registered(pushToken token: String) {
+        notificationProblem = nil
+        guard token != pushToken, PushToken.isValid(token) else { return }
+        pushToken = token
+        UserDefaults.standard.set(token, forKey: Defaults.pushToken)
+        Task { await refresh() }
+    }
+
+    /// Tapping the notification of a waiting approval: do what's waiting, whatever the open setting.
+    func openedFromNotification() async {
+        autoUnlockTask?.cancel()
+        await smartOpen()
+    }
+
     // MARK: - When the app opens
 
     func scenePhaseChanged(to phase: ScenePhase) {
@@ -477,6 +504,8 @@ final class PhoneModel: ObservableObject {
             // Face ID's own sheet makes the app inactive and active again; only react to real launches.
             guard cameFromBackground else { return }
             cameFromBackground = false
+            // The app shows what's waiting now, so its notifications are done.
+            UNUserNotificationCenter.current().removeAllDeliveredNotifications()
             guard !machines.isEmpty, inFlight == nil else { return }
             // Brief delay so a pairing link, notification or Shortcut that opened the app can cancel this first.
             autoUnlockTask = Task { [weak self] in

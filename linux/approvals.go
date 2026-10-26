@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"log"
 	"net"
-	"net/http"
-	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,7 +12,7 @@ import (
 
 // Approvals: a password prompt (sudo, polkit) runs the root-owned checker (checker.go), which asks this agent
 // over the control socket to show the request on the iPhone. The agent lists it in its hello answers, notifies
-// the iPhone through ntfy and passes the iPhone's answer back to the checker, which verifies the signature
+// the iPhone through the relay and passes the iPhone's answer back to the checker, which verifies the signature
 // itself. The agent never decides on its own, so a compromised agent can't approve anything.
 
 // checkerMessage is one line between the checker and the agent, after the checker's "approval" request.
@@ -231,45 +228,25 @@ func (a *Agent) answerApproval(req CommandRequest) (any, error) {
 	return CommandResponse{OK: true, Message: "Approved"}, nil
 }
 
-// notifyPhones posts to the paired iPhones' ntfy topics. Tapping the notification opens the app.
+// notifyPhones asks the relay to notify the paired iPhones that something is waiting. Tapping the notification
+// opens the app.
 func (a *Agent) notifyPhones() {
 	a.mu.Lock()
-	machineName := a.state.MachineName
-	topics := map[string]bool{}
+	send := a.toRelay
+	notify := Notify{MachineName: a.state.MachineName}
+	seen := map[string]bool{}
 	for _, device := range a.state.Devices {
-		if validTopic(device.NotifyTopic) {
-			topics[device.NotifyTopic] = true
+		if validPushToken(device.PushToken) && !seen[device.PushToken] {
+			seen[device.PushToken] = true
+			notify.PushTokens = append(notify.PushTokens, device.PushToken)
 		}
 	}
 	a.mu.Unlock()
-	for topic := range topics {
-		if err := postNotification(topic, machineName); err != nil {
-			log.Printf("Couldn't send the notification: %v", err)
-		}
+	if send == nil || len(notify.PushTokens) == 0 {
+		return
 	}
-}
-
-func postNotification(topic, machineName string) error {
-	server := os.Getenv(envPrefix + "NTFY")
-	if server == "" {
-		server = ntfyServer
+	data, _ := json.Marshal(RelayNotification{Notify: notify})
+	if err := send(data); err != nil {
+		log.Printf("Couldn't send the notification: %v", err)
 	}
-	body, _ := json.Marshal(map[string]any{
-		"topic":    topic,
-		"title":    machineName + " is waiting for you",
-		"message":  "Tap to approve or deny with " + appName + ".",
-		"click":    notifyOpenURL,
-		"priority": 4,
-		"tags":     []string{"closed_lock_with_key"},
-	})
-	client := http.Client{Timeout: 10 * time.Second}
-	response, err := client.Post(strings.TrimRight(server, "/"), "application/json", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	response.Body.Close()
-	if response.StatusCode >= 300 {
-		return errors.New("ntfy answered " + response.Status)
-	}
-	return nil
 }

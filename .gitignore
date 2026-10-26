@@ -13,3 +13,4 @@ test-evidence/
 linux/linux
 site/node_modules/
 site/.wrangler/
+iOS/PhoneApp.entitlements

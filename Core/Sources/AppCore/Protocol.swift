@@ -125,13 +125,13 @@ public struct PairResponse: Codable, Sendable {
 
 public struct HelloRequest: Codable, Sendable {
     public var deviceId: String
-    /// The iPhone's ntfy topic, so the computer can notify it when it's waiting for an approval.
-    /// nil leaves the saved topic as it is; "" removes it.
-    public var notifyTopic: String?
+    /// The iPhone's push token (see `PushToken`), so the computer can notify it when it's waiting for an approval.
+    /// nil leaves the saved token as it is; "" removes it.
+    public var pushToken: String?
 
-    public init(deviceId: String, notifyTopic: String? = nil) {
+    public init(deviceId: String, pushToken: String? = nil) {
         self.deviceId = deviceId
-        self.notifyTopic = notifyTopic
+        self.pushToken = pushToken
     }
 }
 
@@ -234,6 +234,21 @@ public struct RelayResponse: Codable, Sendable {
     }
 }
 
+/// What the computer sends the relay over its WebSocket when it's waiting for an approval. The relay turns it
+/// into "<machineName> is waiting for you" and pushes that to the iPhones through Apple's push service.
+public struct RelayNotification: Codable, Sendable {
+    public struct Notify: Codable, Sendable {
+        public var machineName: String
+        public var pushTokens: [String]
+    }
+
+    public var notify: Notify
+
+    public init(machineName: String, pushTokens: [String]) {
+        notify = Notify(machineName: machineName, pushTokens: pushTokens)
+    }
+}
+
 public enum SignedMessage {
     /// The exact bytes the iPhone signs. Binding the computer, device and action means a signature can't be reused elsewhere.
     public static func bytes(machineId: String, deviceId: String, action: Action, nonce: String) -> Data {
@@ -250,21 +265,13 @@ public enum ApprovalMessage {
     }
 }
 
-/// Push notifications through ntfy (https://ntfy.sh), whose free iPhone app receives them. Each iPhone picks a
-/// random topic; computers post to it when they're waiting for an approval. The notification only says which
-/// computer is waiting; the details travel over the relay.
-public enum Notifications {
-    public static let server = URL(string: "https://ntfy.sh")!
-    /// Tapping the notification opens this, which shows what's waiting.
-    public static let openURL = URL(string: "\(Brand.urlScheme)://approve")!
-
-    public static func newTopic() -> String {
-        Brand.id + "-" + randomToken(byteCount: 15)
-    }
-
-    /// Topics are only letters, digits, - and _, so a topic can't point the computer anywhere but ntfy.
-    public static func isValidTopic(_ topic: String) -> Bool {
-        (16...64).contains(topic.count) && topic.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+/// Notifications go through Apple's push service (APNs): the iPhone app gets a push token from Apple and gives it
+/// to its computers in `hello`, and the relay sends the notification for them. It only says which computer is
+/// waiting; the details travel over the relay when the app asks.
+public enum PushToken {
+    /// APNs tokens are hex (32 bytes today; Apple says they may grow), so a token can't smuggle anything else in.
+    public static func isValid(_ token: String) -> Bool {
+        (64...200).contains(token.count) && token.allSatisfy { $0.isASCII && $0.isHexDigit }
     }
 }
 

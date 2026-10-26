@@ -42,8 +42,8 @@ public struct RelayClient: Sendable {
         return response
     }
 
-    public func hello(deviceId: String, notifyTopic: String? = nil) async throws -> HelloResponse {
-        let response: HelloResponse = try await post("hello", body: HelloRequest(deviceId: deviceId, notifyTopic: notifyTopic), timeout: helloTimeout)
+    public func hello(deviceId: String, pushToken: String? = nil) async throws -> HelloResponse {
+        let response: HelloResponse = try await post("hello", body: HelloRequest(deviceId: deviceId, pushToken: pushToken), timeout: helloTimeout)
         guard response.machineId == machineId else { throw ClientError.wrongMachine }
         return response
     }

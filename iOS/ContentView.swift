@@ -144,30 +144,20 @@ private struct ApprovalCard: View {
 
 private struct NotificationsSection: View {
     @EnvironmentObject private var model: PhoneModel
-    @State private var copied = false
 
     var body: some View {
         Section {
-            Toggle("Notify me with ntfy", isOn: $model.notificationsEnabled)
-            if model.notificationsEnabled {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Topic").font(.caption).foregroundStyle(.secondary)
-                    Text(model.notifyTopic)
-                        .font(.system(.footnote, design: .monospaced))
-                        .textSelection(.enabled)
-                }
-                Button(copied ? "Copied" : "Copy topic") {
-                    UIPasteboard.general.string = model.notifyTopic
-                    copied = true
-                }
-                Link("Get ntfy from the App Store", destination: URL(string: "https://apps.apple.com/app/ntfy/id1625396347")!)
+            Toggle("Notify me", isOn: $model.notificationsEnabled)
+            if let problem = model.notificationProblem {
+                Label(problem, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                Link("Open Settings", destination: URL(string: UIApplication.openSettingsURLString)!)
             }
         } header: {
             Text("Notifications")
         } footer: {
-            Text(model.notificationsEnabled
-                 ? "In ntfy, tap +, paste this topic and subscribe (server ntfy.sh). When a computer waits for your approval, ntfy notifies you; tap the notification to open \(Brand.name). It only names the computer, not the command."
-                 : "Get a notification when a computer waits for your approval, for example for sudo. Uses the free ntfy app.")
+            Text("Get a notification when a computer waits for your approval, for example for sudo. It only names the computer, not the command.")
         }
     }
 }

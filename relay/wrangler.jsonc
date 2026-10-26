@@ -15,5 +15,10 @@
     { "pattern": "relay.glancekey.com", "custom_domain": true },
     { "pattern": "glancekey.dinkelworks.nl", "custom_domain": true }
   ],
+  // Notifications through Apple's push service (src/index.ts). The key itself is a secret:
+  // npx wrangler secret put APNS_KEY < AuthKey_<APNS_KEY_ID>.p8
+  "vars": {
+    "APNS_TOPIC": "nl.dinkelworks.glancekey"
+  },
   "observability": { "enabled": true }
 }

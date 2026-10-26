@@ -68,6 +68,14 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    entitlements:
+      path: iOS/PhoneApp.entitlements
+      properties:
+        # Notifications through Apple's push service, which the relay sends. Signing turns this into
+        # "production" for TestFlight and the App Store; the relay tries both.
+        aps-environment: development
+        # A waiting sudo is worth a notification during a Focus.
+        com.apple.developer.usernotifications.time-sensitive: true
     settings:
       base:
         PRODUCT_NAME: $(APP_NAME)

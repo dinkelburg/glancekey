@@ -66,8 +66,8 @@ type PairResponse struct {
 
 type HelloRequest struct {
 	DeviceID string `json:"deviceId"`
-	// NotifyTopic is the iPhone's ntfy topic: nil leaves the saved one, "" removes it.
-	NotifyTopic *string `json:"notifyTopic,omitempty"`
+	// PushToken is the iPhone's push token (see validPushToken): nil leaves the saved one, "" removes it.
+	PushToken *string `json:"pushToken,omitempty"`
 }
 
 type HelloResponse struct {
@@ -119,6 +119,17 @@ type RelayResponse struct {
 	Body   string `json:"body"`
 }
 
+// RelayNotification is what the agent sends the relay over its WebSocket when it's waiting for an approval. The
+// relay turns it into "<machineName> is waiting for you" and pushes that to the iPhones through Apple's push service.
+type RelayNotification struct {
+	Notify Notify `json:"notify"`
+}
+
+type Notify struct {
+	MachineName string   `json:"machineName"`
+	PushTokens  []string `json:"pushTokens"`
+}
+
 // signedMessage is what the iPhone signs for a command.
 func signedMessage(machineID, deviceID string, action Action, nonce string) []byte {
 	return []byte(fmt.Sprintf("faceunlock/v1\n%s\n%s\n%s\n%s", machineID, deviceID, action, nonce))
@@ -131,20 +142,18 @@ func approvalMessage(machineID, deviceID string, approval Approval) []byte {
 		machineID, deviceID, approval.ID, approval.Nonce, approval.Title, approval.Detail))
 }
 
-// Notifications go through ntfy (https://ntfy.sh): the iPhone app picks a random topic, and its free ntfy app
-// shows what's posted there. Only the computer's name goes to ntfy; the details travel over the relay.
-const (
-	ntfyServer    = "https://ntfy.sh"
-	notifyOpenURL = urlScheme + "://approve"
-)
+// Notifications go through Apple's push service (APNs): the iPhone app gets a push token from Apple and gives it
+// to the agent in hello, and the relay sends the notification for it. It only says which computer is waiting; the
+// details travel over the relay when the app asks.
 
-// validTopic allows only letters, digits, - and _, so a topic can't point the computer anywhere but ntfy.
-func validTopic(topic string) bool {
-	if len(topic) < 16 || len(topic) > 64 {
+// validPushToken allows only hex, as APNs tokens are (32 bytes today; Apple says they may grow), so a token can't
+// smuggle anything else in.
+func validPushToken(token string) bool {
+	if len(token) < 64 || len(token) > 200 {
 		return false
 	}
-	for _, c := range topic {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+	for _, c := range token {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
 			return false
 		}
 	}
