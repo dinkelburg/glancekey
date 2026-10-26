@@ -1,5 +1,6 @@
 // Renders the 1024×1024 app icons: a keyhole whose round part is an eye looking back at you.
-// The same shape as site/public/logo.svg, in the same 1024-point coordinates (y down).
+// The same shape as site/public/logo.svg and Mac/AppIcon.icon (macOS's own icon format, which draws the background
+// and the rounded shape itself), in the same 1024-point coordinates (y down).
 // Usage: swift scripts/make-icon.swift iOS/Assets.xcassets/AppIcon.appiconset
 import AppKit
 

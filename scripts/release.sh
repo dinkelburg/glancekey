@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Builds a release of the Mac app and the Linux program and publishes it on the downloads site (DOWNLOADS in
 # scripts/brand.sh, served by site/downloads), then updates the Homebrew tap (scripts/update-homebrew.sh):
-#   <name>-<version>.zip, <name>.zip    the Mac app, signed with Developer ID and notarized by Apple
+#   <name>-<version>.dmg, <name>.dmg    the Mac app, signed with Developer ID and notarized by Apple, in a disk
+#                                       image to drag it to Applications
 #   <id>-agent-linux-amd64, -arm64      the Linux program (also as <id>-agent-<version>-linux-…)
 #   SHA256SUMS
 # For a new version, raise MARKETING_VERSION in project.yml first. The iPhone app goes through App Store Connect
@@ -45,8 +46,12 @@ for attempt in {1..60}; do
 done
 app=$work/notarized/$APP_NAME.app
 spctl --assess --type execute $app  # Gatekeeper opens it without a warning
-ditto -c -k --keepParent $app $out/$APP_NAME-$VERSION.zip
-cp $out/$APP_NAME-$VERSION.zip $out/$APP_NAME.zip
+# The disk image itself isn't signed: Xcode keeps the Developer ID key in Apple's cloud. Gatekeeper checks the app
+# inside, which carries its notarization ticket. dmgbuild lays out the window without scripting Finder.
+[[ -x build/dmgbuild/bin/dmgbuild ]] || { python3 -m venv build/dmgbuild && build/dmgbuild/bin/pip install -q dmgbuild==1.6.7 }
+build/dmgbuild/bin/dmgbuild -s scripts/dmg-settings.py -D app=$app $APP_NAME $out/$APP_NAME-$VERSION.dmg \
+  > /dev/null 2> >(grep -v 'is deprecated' >&2)  # hdiutil's warnings on macOS 27
+cp $out/$APP_NAME-$VERSION.dmg $out/$APP_NAME.dmg
 
 # The Linux program.
 scripts/build-linux.sh >/dev/null

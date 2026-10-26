@@ -18,15 +18,15 @@ mkdir -p $work/Casks $work/Formula
 cat > $work/Casks/$APP_ID.rb <<RUBY
 cask "$APP_ID" do
   version "$VERSION"
-  sha256 "$(checksum $APP_NAME-$VERSION.zip)"
+  sha256 "$(checksum $APP_NAME-$VERSION.dmg)"
 
-  url "$DOWNLOADS/$APP_NAME-#{version}.zip"
+  url "$DOWNLOADS/$APP_NAME-#{version}.dmg"
   name "$APP_NAME"
   desc "Unlock your computer and approve sudo with Face ID on your iPhone"
   homepage "$WEBSITE/"
 
   livecheck do
-    url "$DOWNLOADS/$APP_NAME.zip"
+    url "$DOWNLOADS/$APP_NAME.dmg"
     strategy :extract_plist
   end
 

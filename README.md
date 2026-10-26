@@ -120,7 +120,7 @@ Without the key the relay works as before and only logs that it can't notify. A 
 ## Releases
 
 - **iPhone:** `scripts/upload-testflight.sh` uploads a build to App Store Connect (TestFlight, then App Store review).
-- **Mac and Linux:** raise `MARKETING_VERSION` in `project.yml`, then run `scripts/release.sh`. It archives the Mac app, has Apple notarize it (Developer ID), builds the Linux program, publishes everything with checksums on https://download.glancekey.com (the `site/downloads` Worker, files from `build/downloads`, not in git) and updates the Homebrew tap (`scripts/update-homebrew.sh`, https://github.com/dinkelburg/homebrew-glancekey). Then update the website if anything users see changed.
+- **Mac and Linux:** raise `MARKETING_VERSION` in `project.yml`, then run `scripts/release.sh`. It archives the Mac app, has Apple notarize it (Developer ID) and puts it in a disk image (`scripts/dmg-settings.py`), builds the Linux program, publishes everything with checksums on https://download.glancekey.com (the `site/downloads` Worker, files from `build/downloads`, not in git) and updates the Homebrew tap (`scripts/update-homebrew.sh`, https://github.com/dinkelburg/homebrew-glancekey). Then update the website if anything users see changed.
 
 ## Development
 

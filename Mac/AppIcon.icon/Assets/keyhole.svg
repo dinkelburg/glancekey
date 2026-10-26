@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The keyhole from site/public/logo.svg; macOS draws the blue background and the rounded shape (icon.json). -->
+  <circle cx="512" cy="410" r="200" fill="#fff"/>
+  <path d="M432 540H592L650 818H374Z" fill="#fff"/>
+  <circle cx="512" cy="410" r="118" fill="#0a4fd6"/>
+  <circle cx="512" cy="410" r="56" fill="#0b1424"/>
+  <circle cx="550" cy="372" r="22" fill="#fff"/>
+</svg>
