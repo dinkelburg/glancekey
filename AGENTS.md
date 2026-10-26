@@ -25,6 +25,7 @@ Approval trust model: for sudo/polkit the checker (root) creates the nonce and v
 - All tests: `scripts/test.sh`
 - Mac app: `scripts/build-mac.sh` (builds, installs to ~/Applications, restarts it)
 - iPhone: `scripts/install-iphone.sh` (cable or paired device; Ruben's paid Developer Program team U78YQGE72M, so an install keeps opening for a year)
+- TestFlight and App Store: `scripts/upload-testflight.sh` archives the iPhone app and uploads it to App Store Connect (app GlanceKey, Apple ID 6827081602). The build number is the date and time.
 - Linux binaries: `scripts/build-linux.sh` → `build/linux/`
 - Relay: `cd relay && npx wrangler deploy`. A deploy briefly drops every agent connection; they reconnect within seconds.
 - Website: `cd site && npm install && npx wrangler dev` (http://localhost:8788) to preview, `npm run deploy` to publish the site and its redirects.

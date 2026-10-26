@@ -58,6 +58,9 @@ targets:
       properties:
         CFBundleDisplayName: $(APP_NAME)
         NSFaceIDUsageDescription: $(APP_NAME) uses Face ID to approve unlocking your computers.
+        # Only standard encryption (HTTPS and the iPhone's own signing keys), which is exempt from export rules,
+        # so App Store Connect doesn't ask about it for every upload.
+        ITSAppUsesNonExemptEncryption: false
         # The relay is HTTPS; plain HTTP is only allowed to local addresses, for a relay running with `wrangler dev`.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
