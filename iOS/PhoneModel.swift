@@ -16,6 +16,7 @@ struct PairedMachine: Codable, Identifiable, Equatable {
 
     var client: RelayClient { RelayClient(relay: relay, machineId: machineId) }
     var symbolName: String { platform == "macOS" ? "laptopcomputer" : "desktopcomputer" }
+    var kind: String { platform == "macOS" ? "Mac" : "Linux" }
 }
 
 struct OperationResult: Equatable {
@@ -54,7 +55,6 @@ final class PhoneModel: ObservableObject {
 
     private enum Defaults {
         static let machines = "pairedMachines"
-        static let autoUnlock = "autoUnlockOnOpen"
         static let notifications = "notificationsEnabled"
         static let pushToken = "pushToken"
     }
@@ -68,10 +68,6 @@ final class PhoneModel: ObservableObject {
     /// A pairing code waiting for you to confirm it: one from a link (which could come from anywhere), or one that
     /// would replace a pairing. ContentView asks.
     @Published var pendingInvite: PairingInvite?
-    /// On open, unlock the one locked computer. Approvals always wait for a tap.
-    @Published var autoUnlockOnOpen: Bool {
-        didSet { UserDefaults.standard.set(autoUnlockOnOpen, forKey: Defaults.autoUnlock) }
-    }
     /// Computers notify this iPhone when they wait for an approval: the relay sends Apple a notification for
     /// `pushToken`. Turning it on asks for permission first.
     @Published var notificationsEnabled: Bool {
@@ -112,7 +108,6 @@ final class PhoneModel: ObservableObject {
     }
 
     private var inFlight: InFlight?
-    private var autoUnlockTask: Task<Void, Never>?
     private var smartTask: Task<OperationResult?, Never>?
     private var liveRefresh: Task<Void, Never>?
     private var cameFromBackground = true
@@ -120,13 +115,17 @@ final class PhoneModel: ObservableObject {
     private init() {
         let defaults = UserDefaults.standard
         machines = defaults.data(forKey: Defaults.machines).flatMap { try? JSONDecoder().decode([PairedMachine].self, from: $0) } ?? []
-        autoUnlockOnOpen = defaults.object(forKey: Defaults.autoUnlock) as? Bool ?? true
         notificationsEnabled = defaults.bool(forKey: Defaults.notifications)
         pushToken = defaults.string(forKey: Defaults.pushToken)
     }
 
     func state(for machine: PairedMachine) -> OperationState {
         states[machine.machineId] ?? .idle
+    }
+
+    func isWorking(on machine: PairedMachine) -> Bool {
+        if case .working = state(for: machine) { return true }
+        return false
     }
 
     func approvalState(for waiting: WaitingApproval) -> OperationState {
@@ -204,7 +203,7 @@ final class PhoneModel: ObservableObject {
         return .init(computers: computers, requests: Array(requests), key: LiveCardController.shared.key)
     }
 
-    /// Opening the app (or tapping the notification, Siri or the Action button) unlocks the one locked computer.
+    /// Siri, Shortcuts and the Action button unlock the one locked computer (`perform(_:onMachineWithId:)`).
     /// Requests waiting for you only show up: approving one always takes a tap on Approve, so you see what it is.
     @discardableResult
     func smartOpen() async -> OperationResult? {
@@ -222,12 +221,12 @@ final class PhoneModel: ObservableObject {
         let locked = lockedMachines
         switch (waiting.count, locked.count) {
         case (0, 1):
-            return await perform(.unlock, on: locked[0], isAutomatic: true)
+            return await perform(.unlock, on: locked[0])
         case (0, 0):
             // An older computer doesn't say whether it's locked: unlock it if it's the only one, as before.
             if machines.count == 1, let machine = machines.first, let status = statuses[machine.machineId],
                status.error == nil, status.locked == nil {
-                return await perform(.unlock, on: machine, isAutomatic: true)
+                return await perform(.unlock, on: machine)
             }
             return nil
         default:
@@ -239,8 +238,7 @@ final class PhoneModel: ObservableObject {
 
     /// Runs `action` with Face ID. A second identical request while one is running waits for that one instead.
     @discardableResult
-    func perform(_ action: Action, on machine: PairedMachine, isAutomatic: Bool = false) async -> OperationResult {
-        if !isAutomatic { autoUnlockTask?.cancel() }
+    func perform(_ action: Action, on machine: PairedMachine) async -> OperationResult {
         while let current = inFlight {
             if current.action == action && current.machineId == machine.machineId { return await current.task.value }
             _ = await current.task.value
@@ -258,7 +256,6 @@ final class PhoneModel: ObservableObject {
     /// `smartOpen`) and locking uses the first one paired.
     func perform(_ action: Action, onMachineWithId machineId: String?) async -> OperationResult {
         if machineId == nil, action == .unlock, !machines.isEmpty {
-            autoUnlockTask?.cancel()
             return await smartOpen() ?? OperationResult(success: true, message: waitingSummary)
         }
         guard let machine = machines.first(where: { $0.machineId == machineId }) ?? machines.first else {
@@ -349,7 +346,6 @@ final class PhoneModel: ObservableObject {
     /// Unlocks every locked computer with one Face ID.
     @discardableResult
     func unlockAll() async -> OperationResult {
-        autoUnlockTask?.cancel()
         let targets = lockedMachines
         guard !targets.isEmpty, inFlight == nil, !targets.contains(where: { if case .working = state(for: $0) { true } else { false } }) else {
             return OperationResult(success: false, message: "Nothing to unlock right now.")
@@ -423,7 +419,6 @@ final class PhoneModel: ObservableObject {
     /// Approves a waiting password prompt with Face ID. The computer verifies the signature.
     @discardableResult
     func approve(_ waiting: WaitingApproval) async -> OperationResult {
-        autoUnlockTask?.cancel()
         if case .working = approvalState(for: waiting) { return OperationResult(success: false, message: "Already approving") }
         approvalStates[waiting.id] = .working("Approving…")
         let machine = waiting.machine, approval = waiting.approval
@@ -448,7 +443,6 @@ final class PhoneModel: ObservableObject {
 
     /// Makes the computer stop waiting and ask for its password. No Face ID needed.
     func deny(_ waiting: WaitingApproval) async {
-        autoUnlockTask?.cancel()
         approvalStates[waiting.id] = .working("Denying…")
         let result: OperationResult
         do {
@@ -489,7 +483,6 @@ final class PhoneModel: ObservableObject {
     // MARK: - Pairing
 
     func handle(url: URL) {
-        autoUnlockTask?.cancel()
         guard url.scheme == Brand.urlScheme else { return }
         switch url.host {
         case "card":
@@ -530,7 +523,6 @@ final class PhoneModel: ObservableObject {
 
     /// Pairs with a code you pasted, after asking if it replaces a pairing.
     func pair(code: String) async {
-        autoUnlockTask?.cancel()
         guard let invite = invite(from: code) else { return }
         if pairedMachine(replacedBy: invite) != nil {
             pendingInvite = invite
@@ -614,10 +606,9 @@ final class PhoneModel: ObservableObject {
         Task { await refresh() }
     }
 
-    /// Tapping the notification of a waiting approval: do what's waiting, whatever the open setting.
+    /// Tapping the notification of a waiting approval shows it.
     func openedFromNotification() async {
-        autoUnlockTask?.cancel()
-        await smartOpen()
+        await refresh()
     }
 
     // MARK: - When the app opens
@@ -627,7 +618,6 @@ final class PhoneModel: ObservableObject {
         switch phase {
         case .background:
             cameFromBackground = true
-            autoUnlockTask?.cancel()
             // "Paired with …" is news for this visit only.
             pairingResult = nil
         case .active:
@@ -637,16 +627,7 @@ final class PhoneModel: ObservableObject {
             // The app shows what's waiting now, so its notifications are done.
             UNUserNotificationCenter.current().removeAllDeliveredNotifications()
             guard !machines.isEmpty, inFlight == nil else { return }
-            // Brief delay so a pairing link, notification or Shortcut that opened the app can cancel this first.
-            autoUnlockTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                guard !Task.isCancelled, let self, self.inFlight == nil else { return }
-                if self.autoUnlockOnOpen {
-                    await self.smartOpen()
-                } else {
-                    await self.refresh()
-                }
-            }
+            Task { await refresh() }
         default:
             break
         }

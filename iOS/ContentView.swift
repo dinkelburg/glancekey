@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: PhoneModel
     @State private var showingAddComputer = false
+    @State private var showingSettings = false
 
     var body: some View {
         NavigationStack {
@@ -22,6 +23,26 @@ struct ContentView: View {
                 } else {
                     machineList
                         .navigationTitle("Computers")
+                        // On the same line as + and Settings, not on its own below them.
+                        .toolbarTitleDisplayMode(.inlineLarge)
+                        .toolbar {
+                            ToolbarItemGroup(placement: .topBarTrailing) {
+                                Button {
+                                    model.pairingResult = nil
+                                    showingAddComputer = true
+                                } label: {
+                                    Image(systemName: "plus")
+                                }
+                                .accessibilityLabel("Add a computer")
+                                Button {
+                                    showingSettings = true
+                                } label: {
+                                    Image(systemName: "gearshape")
+                                }
+                                .accessibilityLabel("Settings")
+                            }
+                        }
+                        .navigationDestination(for: String.self) { MachineDetail(machineId: $0) }
                 }
             }
             .sheet(isPresented: $showingAddComputer) {
@@ -34,6 +55,7 @@ struct ContentView: View {
                         }
                 }
             }
+            .sheet(isPresented: $showingSettings) { SettingsView() }
             .onChange(of: model.pairingResult) { _, result in
                 if result?.success == true { showingAddComputer = false }
             }
@@ -55,69 +77,45 @@ struct ContentView: View {
         Binding(get: { model.pendingInvite != nil }, set: { if !$0 { model.pendingInvite = nil } })
     }
 
+    /// What's happening: requests waiting for you, then a row per computer. Everything else is in Settings.
     private var machineList: some View {
         ScrollViewReader { proxy in
-            list
-                .onChange(of: model.scrollTarget) { _, target in
-                    guard let target else { return }
-                    withAnimation { proxy.scrollTo(target, anchor: .top) }
-                    model.scrollTarget = nil
+            List {
+                if let result = model.pairingResult {
+                    Section {
+                        Label(result.message, systemImage: result.success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(result.success ? .green : .orange)
+                    }
                 }
-        }
-    }
-
-    private var list: some View {
-        List {
-            if let result = model.pairingResult {
+                if !model.waitingApprovals.isEmpty {
+                    Section {
+                        ForEach(model.waitingApprovals) { waiting in
+                            ApprovalCard(waiting: waiting)
+                                .id(waiting.id)
+                        }
+                    }
+                }
                 Section {
-                    Label(result.message, systemImage: result.success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(result.success ? .green : .orange)
-                }
-            }
-            if !model.waitingApprovals.isEmpty {
-                Section("Waiting for you") {
-                    ForEach(model.waitingApprovals) { waiting in
-                        ApprovalCard(waiting: waiting)
-                            .id(waiting.id)
+                    ForEach(model.machines) { machine in
+                        MachineRow(machine: machine)
+                            .id(machine.machineId)
+                    }
+                    if model.lockedMachines.count > 1 {
+                        Button {
+                            Task { await model.unlockAll() }
+                        } label: {
+                            Label("Unlock all \(model.lockedMachines.count)", systemImage: Biometry.symbol)
+                        }
                     }
                 }
             }
-            if model.lockedMachines.count > 1 {
-                Section {
-                    Button {
-                        Task { await model.unlockAll() }
-                    } label: {
-                        Label("Unlock all \(model.lockedMachines.count)", systemImage: Biometry.symbol)
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 40)
-                    }
-                    .buttonStyle(.borderedProminent)
-                } footer: {
-                    Text("One \(Biometry.name) unlocks every locked computer.")
-                }
-            }
-            ForEach(model.machines) { machine in
-                Section {
-                    MachineCard(machine: machine)
-                        .id(machine.machineId)
-                }
-            }
-            Section {
-                Toggle("Unlock when \(Brand.name) opens", isOn: $model.autoUnlockOnOpen)
-                Button("Add another computer") {
-                    model.pairingResult = nil
-                    showingAddComputer = true
-                }
-            } footer: {
-                Text("Opening \(Brand.name) unlocks the one locked computer; with more, tap the one you want. Requests like sudo always wait for you to tap Approve. Tip: add “Unlock Computer” to the Action button, Control Center or your Home Screen in Shortcuts.")
-            }
-            LiveCardSection()
-            NotificationsSection()
-            Section {
-                AboutLinks()
+            .refreshable { await model.refresh() }
+            .onChange(of: model.scrollTarget) { _, target in
+                guard let target else { return }
+                withAnimation { proxy.scrollTo(target, anchor: .top) }
+                model.scrollTarget = nil
             }
         }
-        .refreshable { await model.refresh() }
     }
 }
 
@@ -148,7 +146,7 @@ private struct ApprovalCard: View {
                 Button {
                     Task { await model.approve(waiting) }
                 } label: {
-                    Label("Approve", systemImage: Biometry.symbol)
+                    Text("Approve")
                         .frame(maxWidth: .infinity, minHeight: 36)
                 }
                 .buttonStyle(.borderedProminent)
@@ -186,6 +184,168 @@ private struct ApprovalCard: View {
     }
 }
 
+/// A computer in the list: whether it's locked and the one button you'd want, Unlock or Lock. Tapping the row opens
+/// everything else (`MachineDetail`).
+private struct MachineRow: View {
+    @EnvironmentObject private var model: PhoneModel
+    let machine: PairedMachine
+
+    var body: some View {
+        NavigationLink(value: machine.machineId) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(machine.machineName)
+                        .font(.body.weight(.semibold))
+                    MachineStatusText(machine: machine, brief: true)
+                        .font(.footnote)
+                }
+                Spacer(minLength: 8)
+                actionButton
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var isLocked: Bool? { model.statuses[machine.machineId]?.locked }
+
+    /// Unlock unless it's known to be unlocked.
+    private var actionButton: some View {
+        let unlocks = isLocked != false
+        return Button {
+            Task { await model.perform(unlocks ? .unlock : .lock, on: machine) }
+        } label: {
+            Text(unlocks ? "Unlock" : "Lock")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(unlocks ? .white : .primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(unlocks ? Color.accentColor : Color(.tertiarySystemFill)))
+        }
+        // Its own tap target inside the row's link.
+        .buttonStyle(.borderless)
+        .disabled(model.isWorking(on: machine))
+    }
+
+    private var color: Color {
+        switch (model.statuses[machine.machineId]?.error, isLocked) {
+        case (.some, _): .gray
+        case (nil, true?): .orange
+        case (nil, false?): .green
+        default: .gray
+        }
+    }
+}
+
+/// What a computer is doing or last did, or else whether it's locked. `brief` keeps it to a word for the list.
+private struct MachineStatusText: View {
+    @EnvironmentObject private var model: PhoneModel
+    let machine: PairedMachine
+    let brief: Bool
+
+    var body: some View {
+        switch model.state(for: machine) {
+        case .working(let text):
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.mini)
+                Text(text)
+            }
+            .foregroundStyle(.secondary)
+        case .finished(let result) where !result.success:
+            Text(result.message)
+                .foregroundStyle(.orange)
+                .lineLimit(brief ? 1 : nil)
+        default:
+            if let error = model.statuses[machine.machineId]?.error {
+                Text(brief ? "Can't be reached" : error)
+                    .foregroundStyle(.orange)
+            } else if let locked = model.statuses[machine.machineId]?.locked {
+                Text(locked ? "Locked" : "Unlocked")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(machine.kind)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// Everything for one computer: unlocking, locking and removing it.
+private struct MachineDetail: View {
+    @EnvironmentObject private var model: PhoneModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmingRemoval = false
+    let machineId: String
+
+    var body: some View {
+        if let machine = model.machines.first(where: { $0.machineId == machineId }) {
+            List {
+                Section {
+                    LabeledContent("Status") {
+                        MachineStatusText(machine: machine, brief: false)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    LabeledContent("Kind", value: machine.kind)
+                }
+                Section {
+                    Button {
+                        Task { await model.perform(.unlock, on: machine) }
+                    } label: {
+                        Label("Unlock", systemImage: Biometry.symbol)
+                    }
+                    Button {
+                        Task { await model.perform(.lock, on: machine) }
+                    } label: {
+                        Label("Lock", systemImage: "lock")
+                    }
+                }
+                .disabled(model.isWorking(on: machine))
+                Section {
+                    Button("Remove \(machine.machineName)", role: .destructive) { confirmingRemoval = true }
+                } footer: {
+                    Text("This iPhone won't be able to unlock it until you pair again. Also remove this iPhone on the computer.")
+                }
+            }
+            .navigationTitle(machine.machineName)
+            .navigationBarTitleDisplayMode(.inline)
+            .refreshable { await model.refresh() }
+            .confirmationDialog("Remove \(machine.machineName)?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
+                Button("Remove", role: .destructive) {
+                    dismiss()
+                    model.remove(machine)
+                }
+            }
+        }
+    }
+}
+
+/// The switches you set once, and the links about the app.
+private struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                LiveCardSection()
+                NotificationsSection()
+                Section {
+                    AboutLinks()
+                } footer: {
+                    Text("Tip: add “Unlock Computer” to the Action button or Control Center in the Shortcuts app.")
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+}
+
 private struct LiveCardSection: View {
     @EnvironmentObject private var model: PhoneModel
     @Environment(\.scenePhase) private var scenePhase
@@ -200,10 +360,8 @@ private struct LiveCardSection: View {
                     .foregroundStyle(.orange)
                 Link("Open Settings", destination: URL(string: UIApplication.openSettingsURLString)!)
             }
-        } header: {
-            Text("Lock Screen")
         } footer: {
-            Text("Your computers on the Lock Screen and in the Dynamic Island: which are locked, and requests like sudo, with buttons to unlock, lock and approve. To show the command, it passes through Apple's push service.")
+            Text("Your computers and waiting requests on the Lock Screen, with Unlock, Lock and Approve. Requests show the command, which passes through Apple's push service.")
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { isAllowed = ActivityAuthorizationInfo().areActivitiesEnabled }
@@ -223,105 +381,8 @@ private struct NotificationsSection: View {
                     .foregroundStyle(.orange)
                 Link("Open Settings", destination: URL(string: UIApplication.openSettingsURLString)!)
             }
-        } header: {
-            Text("Notifications")
         } footer: {
-            Text("Get told when a computer waits for your approval, for example for sudo. With the Lock Screen card on, the card lights up your iPhone and shows the command; otherwise a notification names the computer.")
-        }
-    }
-}
-
-private struct MachineCard: View {
-    @EnvironmentObject private var model: PhoneModel
-    @State private var confirmingRemoval = false
-    let machine: PairedMachine
-
-    var body: some View {
-        VStack(spacing: 14) {
-            HStack {
-                Image(systemName: machine.symbolName)
-                    .font(.title2)
-                Text(machine.machineName).font(.headline)
-                Spacer()
-                Menu {
-                    Button("Remove \(machine.machineName)", systemImage: "trash", role: .destructive) {
-                        confirmingRemoval = true
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("More for \(machine.machineName)")
-            }
-            .confirmationDialog("Remove \(machine.machineName)?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
-                Button("Remove", role: .destructive) { model.remove(machine) }
-            } message: {
-                Text("This iPhone won't be able to unlock it until you pair again. Also remove this iPhone on the computer.")
-            }
-
-            Button {
-                Task { await model.perform(.unlock, on: machine) }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: Biometry.symbol)
-                    Text("Unlock")
-                }
-                .font(.title3.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(isWorking)
-
-            Button {
-                Task { await model.perform(.lock, on: machine) }
-            } label: {
-                Label("Lock", systemImage: "lock")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .disabled(isWorking)
-
-            statusLine
-        }
-        .padding(.vertical, 6)
-    }
-
-    private var isWorking: Bool {
-        if case .working = model.state(for: machine) { return true }
-        return false
-    }
-
-    @ViewBuilder
-    private var statusLine: some View {
-        switch model.state(for: machine) {
-        case .idle:
-            if let error = model.statuses[machine.machineId]?.error {
-                Label(error, systemImage: "wifi.exclamationmark")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-                    .multilineTextAlignment(.center)
-            } else if let locked = model.statuses[machine.machineId]?.locked {
-                Label(locked ? "Locked" : "Unlocked", systemImage: locked ? "lock.fill" : "lock.open")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(machine.platform == "macOS" ? "Mac" : "Linux")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        case .working(let text):
-            HStack(spacing: 6) {
-                ProgressView()
-                Text(text)
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-        case .finished(let result):
-            Label(result.message, systemImage: result.success ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.footnote)
-                .foregroundStyle(result.success ? .green : .orange)
-                .multilineTextAlignment(.center)
+            Text("When a computer waits for your approval, for example for sudo. The Lock Screen card lights up with it; without the card, a notification names the computer.")
         }
     }
 }
