@@ -9,7 +9,7 @@ struct MacApp: App {
         MenuBarExtra {
             MenuView(model: model)
         } label: {
-            Image(systemName: model.needsAttention ? "lock.trianglebadge.exclamationmark" : "faceid")
+            Image(nsImage: model.needsAttention ? MenuBarIcon.dimmed : MenuBarIcon.normal)
         }
         .menuBarExtraStyle(.window)
     }

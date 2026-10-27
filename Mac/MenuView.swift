@@ -7,10 +7,10 @@ struct MenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "faceid")
-                    .font(.title2)
-                    .foregroundStyle(.tint)
+            HStack(spacing: 8) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(Brand.name).font(.headline)
                     Text(statusText)
@@ -53,6 +53,31 @@ struct MenuView: View {
     }
 }
 
+/// A title with its explanation underneath on the left and a switch or button on the right, so the controls of
+/// all rows line up.
+private struct DetailRow<Control: View>: View {
+    let title: String
+    var detail: String?
+    var detailColor: Color = .secondary
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(detailColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            control
+        }
+    }
+}
+
 private struct StatusRow<Accessory: View>: View {
     let ok: Bool
     let title: String
@@ -63,15 +88,7 @@ private struct StatusRow<Accessory: View>: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                 .foregroundStyle(ok ? .green : .orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 8)
-            accessory
+            DetailRow(title: title, detail: detail) { accessory }
         }
     }
 }
@@ -242,33 +259,18 @@ private struct OptionsSection: View {
     @State private var sudoError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle("Keep Mac awake on power adapter", isOn: $model.keepAwakeOnPower)
-            Text("A sleeping Mac can't be reached. On battery it sleeps as usual.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
-            Toggle("Fill in password dialogs from iPhone", isOn: $model.fillsPasswordDialogs)
-            Text("When a dialog asks for your Mac password (1Password, System Settings), approve it on your iPhone and \(Brand.name) types the password.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(alignment: .firstTextBaseline) {
-                Label {
-                    Text(sudoText)
-                        .font(.caption)
-                        .foregroundStyle(sudoIsOutdated ? Color.orange : Color.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "terminal")
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
+        VStack(alignment: .leading, spacing: 10) {
+            toggle("Keep Mac awake on power adapter", isOn: $model.keepAwakeOnPower,
+                   detail: "A sleeping Mac can't be reached. On battery it sleeps as usual.")
+            toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+            toggle("Fill in password dialogs from iPhone", isOn: $model.fillsPasswordDialogs,
+                   detail: "When a dialog asks for your Mac password (1Password, System Settings), approve it on your iPhone and \(Brand.name) types the password.")
+            DetailRow(title: "Approve sudo from iPhone", detail: sudoText, detailColor: sudoIsOutdated ? .orange : .secondary) {
                 if model.canSetUpSudo {
-                    sudoButton.disabled(isChangingSudo)
+                    // The size of the buttons above, not of the switches.
+                    sudoButton.disabled(isChangingSudo).controlSize(.regular)
                 }
             }
-            .padding(.top, 4)
             if let sudoError {
                 Text(sudoError)
                     .font(.caption)
@@ -277,7 +279,12 @@ private struct OptionsSection: View {
             }
         }
         .toggleStyle(.switch)
+        .labelsHidden()
         .controlSize(.small)
+    }
+
+    private func toggle(_ title: String, isOn: Binding<Bool>, detail: String? = nil) -> some View {
+        DetailRow(title: title, detail: detail) { Toggle(title, isOn: isOn) }
     }
 
     private var sudoIsOutdated: Bool {
