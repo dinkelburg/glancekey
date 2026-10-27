@@ -101,6 +101,8 @@ final class PhoneModel: ObservableObject {
     @Published var scrollTarget: String?
     /// Where Apple delivers this iPhone's notifications; nil until Apple hands it over.
     private var pushToken: String?
+    /// The push token, while notifications are on.
+    var notificationAddress: String? { notificationsEnabled ? pushToken : nil }
 
     private struct InFlight {
         let id = UUID()

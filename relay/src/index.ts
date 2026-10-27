@@ -15,7 +15,8 @@ import { DurableObject } from "cloudflare:workers";
 // (`Card`): the iPhone POSTs /v1/card/<cardId> with where to push it and which computers it lists, and each computer
 // sends {"card": {"cards", "locked", "approvals"}} over its WebSocket whenever that changes. The card stores the
 // latest of each computer and pushes the whole card. What the card shows is what the relay already carries; its
-// buttons send the same signed requests as the app.
+// buttons open the app. For an iPhone with a card, the card also does the notifying: a new request lights up the
+// iPhone through the card, and only comes as a notification when there's no card to do that.
 
 // The app's name, as in Core/Sources/AppCore/Brand.swift, which explains how to rename the app. The relay's
 // own name and address are in wrangler.jsonc.
@@ -217,34 +218,8 @@ export class Machine extends DurableObject<Env> {
     if (this.notifiedAt.length >= MAX_NOTIFICATIONS_PER_MINUTE) return;
     this.notifiedAt.push(now);
 
-    const { APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC } = this.env;
-    if (!APNS_KEY || !APNS_KEY_ID || !APNS_TEAM_ID || !APNS_TOPIC) {
-      console.log("Not sending a notification: the APNs key isn't set up.");
-      return;
-    }
-    const name = Array.from(machineName.trim()).slice(0, 100).join("");
-    const payload = JSON.stringify({
-      aps: {
-        alert: { title: `${name} is waiting for you`, body: `Tap to approve or deny with ${APP_NAME}.` },
-        sound: "default",
-        "interruption-level": "time-sensitive",
-      },
-    });
-    try {
-      const authorization = `bearer ${await providerToken(APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID)}`;
-      await Promise.all(tokens.map((token) => push(token, payload, {
-        authorization,
-        "apns-topic": APNS_TOPIC,
-        "apns-push-type": "alert",
-        "apns-priority": "10",
-        // Requests stop waiting within two minutes; a later notification would point at nothing.
-        "apns-expiration": String(Math.floor(now / 1000) + 120),
-        // A newer notification for this computer replaces the previous one (the id is 64 hex digits, APNs' limit).
-        "apns-collapse-id": this.ctx.id.toString(),
-      })));
-    } catch (error) {
-      console.log(`Couldn't send a notification: ${error}`);
-    }
+    // A newer notification for this computer replaces the previous one.
+    await sendNotification(this.env, tokens, machineName, this.ctx.id.toString());
   }
 
   /// The computer's part of its iPhones' lock screen cards: passed on to each card, and to cards it no longer lists
@@ -329,6 +304,10 @@ interface StoredEntry extends CardEntry {
 /// What the iPhone registered: where to push and what to list.
 interface CardSettings {
   computers: CardComputer[];
+  /// Notifications are on: a new request makes the card light up the iPhone with a sound, or, when there's no card
+  /// to do that, comes as a notification to `pushToken`. The computers leave this iPhone out of their own `notify`.
+  alerts: boolean;
+  pushToken?: string;
   /// Goes into the card's links, so the app can tell they came from its own card and not from a web page.
   key: string;
   /// Starts a new card (push-to-start).
@@ -354,8 +333,8 @@ const CARD_KEY = /^[A-Za-z0-9_-]{16,64}$/;
 export class Card extends DurableObject<Env> {
   private registeredAt: number[] = [];
 
-  /// POST /v1/card/<cardId> {secret, on, computers, key, startToken?, updateToken?, startedAt?}. The id is the
-  /// SHA-256 of the secret, so only the iPhone can register; the computers only know the id.
+  /// POST /v1/card/<cardId> {secret, on, computers, key, alerts, pushToken?, startToken?, updateToken?, startedAt?}.
+  /// The id is the SHA-256 of the secret, so only the iPhone can register; the computers only know the id.
   async fetch(request: Request): Promise<Response> {
     if (request.method !== "POST") return json(405, { error: "Use POST." });
     const now = Date.now();
@@ -399,6 +378,8 @@ export class Card extends DurableObject<Env> {
     }
     const settings: CardSettings = {
       computers,
+      alerts: body.alerts === true,
+      pushToken: typeof body.pushToken === "string" && PUSH_TOKEN.test(body.pushToken) ? body.pushToken : undefined,
       key: body.key,
       startToken: token(body.startToken, previous?.startToken),
       updateToken: token(body.updateToken, previous?.updateToken),
@@ -442,13 +423,13 @@ export class Card extends DurableObject<Env> {
     for (const id of ids.slice(MAX_CARD_ENTRIES)) delete entries[id];
     await this.ctx.storage.put("entries", entries);
 
-    // Worth starting a new card for (which lights up the iPhone): a computer that's now locked, or a new request.
+    // Worth lighting up the iPhone for (and starting a new card): a computer that's now locked, or a new request.
     const settings = await this.ctx.storage.get<CardSettings>("settings");
     const listed = settings?.computers.some((computer) => computer.id === machineId) ?? false;
     const newlyLocked = entry?.locked === true && (!before || !before.online || before.locked !== true);
     const newRequest = entry?.approvals.some((waiting) => !before?.approvals.some((old) => old.id === waiting.id)) ?? false;
     if (listed && (newlyLocked || newRequest)) {
-      await this.ctx.storage.put("start", newRequest ? { machineId, reason: "request" } : { machineId, reason: "locked" });
+      await this.ctx.storage.put("news", newRequest ? { machineId, reason: "request" } : { machineId, reason: "locked" });
     }
     await this.schedulePush();
   }
@@ -487,25 +468,27 @@ export class Card extends DurableObject<Env> {
   private async push(settings: CardSettings): Promise<void> {
     const now = Date.now();
     await this.ctx.storage.put("pushedAt", now);
-    const start = await this.ctx.storage.get<{ machineId: string; reason: "locked" | "request" }>("start");
-    await this.ctx.storage.delete("start");
+    const news = await this.ctx.storage.get<{ machineId: string; reason: "locked" | "request" }>("news");
+    await this.ctx.storage.delete("news");
+    const name = settings.computers.find((computer) => computer.id === news?.machineId)?.name ?? "Your computer";
+    // A new request alerts you, with notifications on: through the card when there is one, else as a notification.
+    const alerts = news?.reason === "request" && settings.alerts;
+    const waiting = { title: `${name} is waiting for you`, body: "Approve it on the card.", sound: alerts };
 
     const running = settings.updateToken && settings.startedAt && now / 1000 - settings.startedAt < CARD_LIFETIME_SECONDS;
     if (running) {
-      const result = await this.pushCard(settings.updateToken!, settings, "update");
+      const result = await this.pushCard(settings.updateToken!, settings, "update", alerts ? waiting : undefined);
       if (result.gone) {
         // The card ended (swiped away, or iOS ended it): start a new one with the next change worth it.
         await this.ctx.storage.put("settings", { ...settings, updateToken: undefined, startedAt: undefined });
       }
+      if (alerts && !result.ok) await this.notifyInstead(settings, name);
       await this.ctx.storage.put("dirty", !result.ok);
       return;
     }
     const startedAt = await this.ctx.storage.get<number>("startedCardAt") ?? 0;
-    if (start && settings.startToken && now - startedAt >= MIN_START_INTERVAL_MS) {
-      const name = settings.computers.find((computer) => computer.id === start.machineId)?.name ?? "Your computer";
-      const alert = start.reason === "request"
-        ? { title: `${name} is waiting for you`, body: "Approve or deny on the card." }
-        : { title: `${name} is locked`, body: "Unlock it from the card." };
+    if (news && settings.startToken && now - startedAt >= MIN_START_INTERVAL_MS) {
+      const alert = news.reason === "request" ? waiting : { title: `${name} is locked`, body: "Unlock it from the card.", sound: false };
       const result = await this.pushCard(settings.startToken, settings, "start", alert);
       if (result.ok) {
         await this.ctx.storage.put("startedCardAt", now);
@@ -515,7 +498,13 @@ export class Card extends DurableObject<Env> {
         return;
       }
     }
+    if (alerts) await this.notifyInstead(settings, name);
     await this.ctx.storage.put("dirty", true);
+  }
+
+  /// The notification a computer would have sent, for a new request when the card can't alert you itself.
+  private async notifyInstead(settings: CardSettings, machineName: string): Promise<void> {
+    if (settings.pushToken) await sendNotification(this.env, [settings.pushToken], machineName, this.ctx.id.toString());
   }
 
   private async entries(): Promise<Record<string, StoredEntry>> {
@@ -534,8 +523,9 @@ export class Card extends DurableObject<Env> {
     return { computers, requests, key: settings.key };
   }
 
+  /// `alert` lights up the iPhone and shows the card (with a sound if it says so); a start always needs one.
   private async pushCard(token: string, settings: CardSettings, event: "start" | "update" | "end",
-                         alert?: { title: string; body: string }): Promise<{ ok: boolean; gone?: boolean }> {
+                         alert?: { title: string; body: string; sound: boolean }): Promise<{ ok: boolean; gone?: boolean }> {
     const { APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC } = this.env;
     if (!APNS_KEY || !APNS_KEY_ID || !APNS_TEAM_ID || !APNS_TOPIC) {
       console.log("Not updating a card: the APNs key isn't set up.");
@@ -546,8 +536,10 @@ export class Card extends DurableObject<Env> {
     if (event === "start") {
       aps["attributes-type"] = "LiveCardAttributes";
       aps.attributes = {};
-      // A start needs an alert. No sound: a waiting request also gets the regular notification.
-      aps.alert = alert;
+    }
+    if (alert) {
+      aps.alert = { title: alert.title, body: alert.body };
+      if (alert.sound) aps.sound = "default";
     }
     if (event === "end") aps["dismissal-date"] = now;
     try {
@@ -601,6 +593,39 @@ function cardUpdate(request: unknown): { cards: string[]; entry: CardEntry } | u
 function clip(text: string, limit: number): string {
   const characters = Array.from(text);
   return characters.length <= limit ? text : characters.slice(0, limit - 1).join("") + "…";
+}
+
+/// Pushes "<machineName> is waiting for you" to `tokens`. A newer one with the same `collapseId` (64 hex digits, APNs'
+/// limit) replaces the previous one.
+async function sendNotification(env: Env, tokens: string[], machineName: string, collapseId: string): Promise<void> {
+  const { APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC } = env;
+  if (!APNS_KEY || !APNS_KEY_ID || !APNS_TEAM_ID || !APNS_TOPIC) {
+    console.log("Not sending a notification: the APNs key isn't set up.");
+    return;
+  }
+  const name = Array.from(machineName.trim()).slice(0, 100).join("");
+  const payload = JSON.stringify({
+    aps: {
+      alert: { title: `${name} is waiting for you`, body: `Tap to approve or deny with ${APP_NAME}.` },
+      sound: "default",
+      "interruption-level": "time-sensitive",
+    },
+  });
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    const authorization = `bearer ${await providerToken(APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID)}`;
+    await Promise.all(tokens.map((token) => push(token, payload, {
+      authorization,
+      "apns-topic": APNS_TOPIC,
+      "apns-push-type": "alert",
+      "apns-priority": "10",
+      // Requests stop waiting within two minutes; a later notification would point at nothing.
+      "apns-expiration": String(now + 120),
+      "apns-collapse-id": collapseId,
+    })));
+  } catch (error) {
+    console.log(`Couldn't send a notification: ${error}`);
+  }
 }
 
 const APNS_HOSTS = ["https://api.push.apple.com", "https://api.sandbox.push.apple.com"];

@@ -232,14 +232,14 @@ func (a *Agent) answerApproval(req CommandRequest) (any, error) {
 }
 
 // notifyPhones asks the relay to notify the paired iPhones that something is waiting. Tapping the notification
-// opens the app.
+// opens the app. An iPhone with a lock screen card is left out: its card does the notifying (card.go).
 func (a *Agent) notifyPhones() {
 	a.mu.Lock()
 	send := a.toRelay
 	notify := Notify{MachineName: a.state.MachineName}
 	seen := map[string]bool{}
 	for _, device := range a.state.Devices {
-		if validPushToken(device.PushToken) && !seen[device.PushToken] {
+		if validPushToken(device.PushToken) && !seen[device.PushToken] && !validCardID(device.CardID) {
 			seen[device.PushToken] = true
 			notify.PushTokens = append(notify.PushTokens, device.PushToken)
 		}

@@ -764,9 +764,11 @@ final class AppModel: ObservableObject {
     }
 
     /// Asks the relay to notify the paired iPhones that something is waiting; tapping the notification opens the app.
+    /// An iPhone with a lock screen card is left out: its card does the notifying (`updateCard`).
     private func notifyPhones() {
         var tokens: [String] = []
-        for token in devices.compactMap(\.pushToken) where PushToken.isValid(token) && !tokens.contains(token) {
+        for device in devices where !CardId.isValid(device.cardId ?? "") {
+            guard let token = device.pushToken, PushToken.isValid(token), !tokens.contains(token) else { continue }
             tokens.append(token)
         }
         guard !tokens.isEmpty else { return }

@@ -328,3 +328,56 @@ test("an expired request leaves the card, and the relay, by itself", { timeout: 
     socket.close(1000);
   }
 });
+
+test("a new request lights up the iPhone through its card, or as a notification when there's no card", { timeout: 10000 }, async () => {
+  const waiting = { id: "a1", title: "sudo true", detail: "", expiresIn: 60 };
+
+  // A running card alerts with a sound, once notifications are on.
+  const card = newCard();
+  const machineId = crypto.randomUUID();
+  const token = liveToken(), pushToken = "ae".repeat(32);
+  await register(card, { computers: [{ id: machineId, name: "Mac", state: "unknown" }], updateToken: token,
+    startedAt: Date.now() / 1000, alerts: true, pushToken });
+  const socket = await connect(machineId);
+  try {
+    socket.send(JSON.stringify({ card: { cards: [card.id], locked: false, approvals: [waiting] } }));
+    const [update] = await pushesFor(token, 1);
+    assert.deepEqual(update.body.aps.alert, { title: "Mac is waiting for you", body: "Approve it on the card." });
+    assert.equal(update.body.aps.sound, "default");
+    await sleep(300);
+    assert.equal(pushes.filter((push) => push.url.pathname === `/3/device/${pushToken}`).length, 0);
+  } finally {
+    socket.close(1000);
+  }
+
+  // Without a card to show it, it comes as the regular notification.
+  const bare = newCard();
+  const otherId = crypto.randomUUID();
+  const otherPushToken = "af".repeat(32);
+  await register(bare, { computers: [{ id: otherId, name: "Omarchy", state: "unknown" }], alerts: true, pushToken: otherPushToken });
+  const other = await connect(otherId);
+  try {
+    other.send(JSON.stringify({ card: { cards: [bare.id], locked: false, approvals: [waiting] } }));
+    const [notification] = await pushesFor(otherPushToken, 1);
+    assert.equal(notification.headers.get("apns-push-type"), "alert");
+    assert.equal(notification.body.aps.alert.title, "Omarchy is waiting for you");
+  } finally {
+    other.close(1000);
+  }
+});
+
+test("with notifications off, the card updates without lighting up the iPhone", { timeout: 10000 }, async () => {
+  const card = newCard();
+  const machineId = crypto.randomUUID();
+  const token = liveToken();
+  await register(card, { computers: [{ id: machineId, name: "Mac", state: "unknown" }], updateToken: token, startedAt: Date.now() / 1000 });
+  const socket = await connect(machineId);
+  try {
+    socket.send(JSON.stringify({ card: { cards: [card.id], locked: false, approvals: [{ id: "a1", title: "sudo true", detail: "", expiresIn: 60 }] } }));
+    const [update] = await pushesFor(token, 1);
+    assert.equal(update.body.aps.alert, undefined);
+    assert.equal(update.body.aps.sound, undefined);
+  } finally {
+    socket.close(1000);
+  }
+});

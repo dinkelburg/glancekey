@@ -226,7 +226,7 @@ private struct NotificationsSection: View {
         } header: {
             Text("Notifications")
         } footer: {
-            Text("Get a notification when a computer waits for your approval, for example for sudo. It only names the computer, not the command.")
+            Text("Get told when a computer waits for your approval, for example for sudo. With the Lock Screen card on, the card lights up your iPhone and shows the command; otherwise a notification names the computer.")
         }
     }
 }

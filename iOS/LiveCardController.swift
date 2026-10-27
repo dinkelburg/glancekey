@@ -33,6 +33,10 @@ final class LiveCardController {
         var on: Bool
         var key: String
         var computers: [Computer]
+        /// Notifications are on: a new request lights up the iPhone through the card, or, without a card, comes as a
+        /// notification to `pushToken`. The computers leave an iPhone with a card out of their own notifications.
+        var alerts = false
+        var pushToken: String?
         var startToken: String?
         var updateToken: String?
         /// When the card with `updateToken` started, in seconds since 1970.
@@ -201,6 +205,8 @@ final class LiveCardController {
         var registration = Registration(secret: secret, on: isEnabled && isAllowed, key: key, computers: [])
         if registration.on {
             registration.computers = model.liveCardContent.computers.map { .init(id: $0.id, name: $0.name, state: $0.state.rawValue) }
+            registration.pushToken = model.notificationAddress
+            registration.alerts = registration.pushToken != nil
             registration.startToken = startToken
             if let activity = current, let token = updateTokens[activity.id] {
                 registration.updateToken = token

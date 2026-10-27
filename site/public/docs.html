@@ -114,7 +114,7 @@ sudo glancekey-agent disable-sudo   # back to just your password</code></pre>
     <p>It shows up when you open GlanceKey, and again when a computer locks or asks for something. To turn it off, switch off <strong>Show on the Lock Screen</strong> in the app. A computer running an older version of GlanceKey shows what the app saw when you last opened it.</p>
 
     <h2 id="notifications">Notifications</h2>
-    <p>In the iPhone app, turn on <strong>Notify me</strong>. When a computer waits for you, your iPhone gets a notification that names the computer; tap it to open GlanceKey. What's waiting travels over the relay when the app asks, never in the notification.</p>
+    <p>In the iPhone app, turn on <strong>Notify me</strong>. When a computer waits for you, the Lock Screen card lights up your iPhone with the request. Without the card, you get a notification that names the computer; tap it to open GlanceKey. What's waiting travels over the relay when the app asks, never in that notification.</p>
 
     <h2 id="relay">Your own relay</h2>
     <p>The relay that connects your iPhone to your computers is one small Cloudflare Worker, in the <code>relay</code> folder of <a href="https://github.com/dinkelburg/glancekey">GlanceKey's code</a>. In <code>relay/wrangler.jsonc</code>, remove <code>account_id</code> and replace the two <code>routes</code> with your own domain (or remove them for a workers.dev address). Then run <code>npm install</code> and <code>npx wrangler deploy</code> in that folder, and point your computers at it:</p>

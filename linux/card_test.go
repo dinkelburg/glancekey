@@ -94,3 +94,21 @@ func TestCardIgnoresInvalidIDs(t *testing.T) {
 		t.Fatal("invalid card id saved")
 	}
 }
+
+func TestPhoneWithACardIsNotNotified(t *testing.T) {
+	s := newApprovalSetup(t)
+	pushToken, card := strings.Repeat("0123456789abcdef", 4), strings.Repeat("ab", 32)
+	s.phone.call("/v1/hello", HelloRequest{DeviceID: s.phone.deviceID, PushToken: &pushToken, CardID: &card})
+	sent := make(chan []byte, 4)
+	s.agent.setRelaySender(func(data []byte) error { sent <- data; return nil })
+
+	result := s.check("5s")
+	approval := s.phone.waitForApproval()
+	select {
+	case data := <-sent:
+		t.Fatalf("sent %s; the card notifies this iPhone", data)
+	case <-time.After(500 * time.Millisecond):
+	}
+	s.phone.answer(actionDeny, approval, "")
+	exitStatus(t, result)
+}

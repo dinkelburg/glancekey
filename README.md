@@ -25,7 +25,7 @@ iPhone ──HTTPS──▶ relay (relay.glancekey.com, Cloudflare) ◀──Web
   - The computer hands out a single-use nonce, valid for 60 s.
   - It only accepts a signature over that nonce, the computer's ID, the iPhone's ID and the action.
 - **The relay is not trusted.** It only passes messages along. It can't forge or replay an unlock or an approval, and it never sees the pairing code: the iPhone sends an HMAC proof tied to its key instead. It does see what's waiting for approval, and it could decline a request or stop passing messages on.
-- **Notifications only name the computer.** A computer that waits for you asks the relay to notify your iPhone; the relay sends "… is waiting for you" through Apple's push service and stores nothing. What's waiting travels over the relay when the app asks, not in the notification.
+- **Notifications only name the computer.** A computer that waits for you asks the relay to notify your iPhone; the relay sends "… is waiting for you" through Apple's push service and stores nothing. What's waiting travels over the relay when the app asks, not in the notification. With the Lock Screen card on, the card does the notifying instead, and it does show the command (below).
 - **The Lock Screen card shows what's waiting.** The relay keeps the card's contents so it can push changes (see [Lock Screen card](#lock-screen-card)): computer names and whether each is locked while the card is on, and a waiting request with its command until it's answered or expires. The card's buttons send the same signed requests as the app, with the same Face ID key. They open the app, which asks for Face ID, because iOS only lets an app do that while it's on screen; the links carry the card's own key, so a web page can't open them.
 - **Relay slot:** each computer claims its slot on the relay with a secret, so nobody else can connect in its place.
 - **Login passwords stay on each computer:**
@@ -126,6 +126,8 @@ Like notifications, the card needs the relay's APNs key, so a self-hosted relay 
 ## Notifications
 
 The iPhone app gets a push token from Apple and gives it to its computers in every `hello`. A computer that starts waiting for an approval sends `{"notify": {"machineName", "pushTokens"}}` over its WebSocket, and the relay pushes the notification with the app's APNs key. It tries production first and the sandbox second, because an app installed from Xcode has a sandbox token. A newer notification for the same computer replaces the older one, they expire after two minutes, and a computer can send six a minute.
+
+An iPhone with a Lock Screen card gets no notification from its computers: the card registration tells the relay whether notifications are on (`alerts`) and the push token. For a new request, the relay sends the card's update with an alert (it lights up the iPhone, shows the card and plays the sound), and only sends the regular notification when there's no card to do that: none started yet, or ended and not started again. A card you swiped away isn't something the relay can see, so a request then shows up silently.
 
 Setting up the key (once, or after revoking it):
 1. In the Apple Developer account, Certificates, Identifiers & Profiles › Keys › +: name it, tick **Apple Push Notifications service (APNs)**, and download `AuthKey_<key id>.p8`. Apple only lets you download it once; keep it in 1Password.
