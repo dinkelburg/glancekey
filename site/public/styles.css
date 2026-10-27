@@ -349,11 +349,11 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
 }
 @media (max-width: 379px) { .stage { zoom: .88; } }
 
-/* One 12 s loop, the same twice: tap Approve, Face ID shows the face and then a tick in the
+/* One 13 s loop, the same twice: tap Approve, Face ID shows the face and then a tick in the
    middle of the screen, the approval travels to the workstation and sudo goes on; 40% of
    the loop later the same with Unlock and the Mac; hold, then start over. */
 @media (prefers-reduced-motion: no-preference) {
-  .stage { --loop: 12s; }
+  .stage { --loop: 13s; }
   .approve .tap { animation: tap-approve var(--loop) infinite; }
   .approve { animation: press-approve var(--loop) infinite; }
   .faceid { animation: faceid var(--loop) infinite; }
@@ -376,24 +376,24 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
 }
 @keyframes tap-approve { 0%, 7% { opacity: 0; transform: scale(.3); } 8% { opacity: .7; } 11%, 100% { opacity: 0; transform: scale(1.3); } }
 @keyframes press-approve { 0%, 7.5% { transform: none; } 8.5% { transform: scale(.94); } 10.5%, 100% { transform: none; } }
-@keyframes faceid { 0%, 9%, 21.5%, 49%, 61.5%, 100% { opacity: 0; transform: scale(.9); } 10.5%, 20%, 50.5%, 60% { opacity: 1; transform: none; } }
-@keyframes fid-face { 0%, 14%, 22.5%, 54%, 62.5%, 100% { opacity: 1; } 15%, 21.5%, 55%, 61.5% { opacity: 0; } }
+@keyframes faceid { 0%, 9%, 25.5%, 49%, 65.5%, 100% { opacity: 0; transform: scale(.9); } 10.5%, 24%, 50.5%, 64% { opacity: 1; transform: none; } }
+@keyframes fid-face { 0%, 16%, 26.5%, 56%, 66.5%, 100% { opacity: 1; } 17%, 25.5%, 57%, 65.5% { opacity: 0; } }
 @keyframes fid-frame {
-  0%, 14%, 22.5%, 54%, 62.5%, 100% { transform: none; opacity: 1; }
-  16%, 21.5%, 56%, 61.5% { transform: rotate(90deg) scale(.7); opacity: 0; }
+  0%, 16%, 26.5%, 56%, 66.5%, 100% { transform: none; opacity: 1; }
+  18%, 25.5%, 58%, 65.5% { transform: rotate(90deg) scale(.7); opacity: 0; }
 }
-@keyframes fid-ring { 0%, 14%, 22.5%, 54%, 62.5%, 100% { stroke-dashoffset: 101; } 16%, 21.5%, 56%, 61.5% { stroke-dashoffset: 0; } }
-@keyframes fid-check { 0%, 15%, 22.5%, 55%, 62.5%, 100% { stroke-dashoffset: 101; } 17%, 21.5%, 57%, 61.5% { stroke-dashoffset: 0; } }
-@keyframes to-linux { 0%, 21% { stroke-dashoffset: 30; } 31%, 100% { stroke-dashoffset: -108; } }
-@keyframes linux-before { 0%, 31% { opacity: 1; } 33%, 90% { opacity: 0; } 94%, 100% { opacity: 1; } }
-@keyframes linux-after { 0%, 31% { opacity: 0; } 33%, 90% { opacity: 1; } 94%, 100% { opacity: 0; } }
-@keyframes term-out { 0%, 31% { opacity: 0; } 31.5%, 90% { opacity: 1; } 92%, 100% { opacity: 0; } }
+@keyframes fid-ring { 0%, 16%, 26.5%, 56%, 66.5%, 100% { stroke-dashoffset: 101; } 18%, 25.5%, 58%, 65.5% { stroke-dashoffset: 0; } }
+@keyframes fid-check { 0%, 17%, 26.5%, 57%, 66.5%, 100% { stroke-dashoffset: 101; } 19%, 25.5%, 59%, 65.5% { stroke-dashoffset: 0; } }
+@keyframes to-linux { 0%, 25% { stroke-dashoffset: 30; } 34%, 100% { stroke-dashoffset: -108; } }
+@keyframes linux-before { 0%, 34% { opacity: 1; } 36%, 90% { opacity: 0; } 94%, 100% { opacity: 1; } }
+@keyframes linux-after { 0%, 34% { opacity: 0; } 36%, 90% { opacity: 1; } 94%, 100% { opacity: 0; } }
+@keyframes term-out { 0%, 34% { opacity: 0; } 34.5%, 90% { opacity: 1; } 92%, 100% { opacity: 0; } }
 @keyframes tap-unlock { 0%, 47% { opacity: 0; transform: scale(.3); } 48% { opacity: .7; } 51%, 100% { opacity: 0; transform: scale(1.3); } }
 @keyframes press-unlock { 0%, 47.5% { transform: none; } 48.5% { transform: scale(.97); } 50.5%, 100% { transform: none; } }
-@keyframes to-mac { 0%, 61% { stroke-dashoffset: 30; } 71%, 100% { stroke-dashoffset: -108; } }
-@keyframes mac-before { 0%, 71% { opacity: 1; } 75%, 90% { opacity: 0; } 94%, 100% { opacity: 1; } }
-@keyframes mac-after { 0%, 71% { opacity: 0; } 73%, 90% { opacity: 1; } 94%, 100% { opacity: 0; } }
-@keyframes desktop { 0%, 71% { transform: scale(1.06); } 75%, 94% { transform: none; } 95%, 100% { transform: scale(1.06); } }
+@keyframes to-mac { 0%, 65% { stroke-dashoffset: 30; } 74%, 100% { stroke-dashoffset: -108; } }
+@keyframes mac-before { 0%, 74% { opacity: 1; } 78%, 90% { opacity: 0; } 94%, 100% { opacity: 1; } }
+@keyframes mac-after { 0%, 74% { opacity: 0; } 76%, 90% { opacity: 1; } 94%, 100% { opacity: 0; } }
+@keyframes desktop { 0%, 74% { transform: scale(1.06); } 78%, 94% { transform: none; } 95%, 100% { transform: scale(1.06); } }
 
 /* Sections */
 section { padding: 96px 0; }
