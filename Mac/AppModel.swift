@@ -90,6 +90,8 @@ final class AppModel: ObservableObject {
     /// The version of the checker sudo runs; read at launch and after changing sudo approvals.
     private var installedCheckerVersion = AppModel.readInstalledCheckerVersion()
     private var isBusy = false
+    /// What the relay last got for the lock screen cards; nil sends it again.
+    private var sentCard: RelayCard?
 
     private init() {
         let defaults = UserDefaults.standard
@@ -112,7 +114,12 @@ final class AppModel: ObservableObject {
             guard let self else { return (503, Data()) }
             return await self.handle(path: path, body: body)
         }
-        connection.onStateChange = { [weak self] state in self?.relayState = state }
+        connection.onStateChange = { [weak self] state in
+            self?.relayState = state
+            // A new connection gets the whole card again.
+            self?.sentCard = nil
+            if state == .connected { self?.updateCard() }
+        }
         self.connection = connection
         connection.connect()
 
@@ -141,7 +148,10 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.refreshStatus() }
         }
         dialogTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkPasswordDialog() }
+            Task { @MainActor in
+                self?.checkPasswordDialog()
+                self?.updateCard()
+            }
         }
     }
 
@@ -468,17 +478,26 @@ final class AppModel: ObservableObject {
             devices[index].pushToken = token.isEmpty ? nil : token
             saveDevices()
         }
+        if let card = request.cardId, card != (devices[index].cardId ?? ""), card.isEmpty || CardId.isValid(card) {
+            devices[index].cardId = card.isEmpty ? nil : card
+            saveDevices()
+            updateCard()
+        }
         let nonce = authenticator.issueNonce(for: request.deviceId)
+        return respond(HelloResponse(machineId: machineId, machineName: machineName, nonce: nonce,
+                                     locked: ScreenController.isLocked, approvals: waitingApprovals))
+    }
+
+    /// The requests the iPhone can still answer: sudo and the password dialog.
+    private var waitingApprovals: [Approval] {
         var waiting = approvals.values.filter { !$0.answered }.map { ($0.approval, $0.deadline) }
         if let dialog = dialogRequest, !dialog.answered { waiting.append((dialog.approval, dialog.deadline)) }
-        let unanswered = waiting.compactMap { approval, deadline -> Approval? in
+        return waiting.compactMap { approval, deadline -> Approval? in
             guard deadline > Date() else { return nil }
             var approval = approval
             approval.expiresIn = Int(deadline.timeIntervalSinceNow.rounded(.up))
             return approval
         }
-        return respond(HelloResponse(machineId: machineId, machineName: machineName, nonce: nonce,
-                                     locked: ScreenController.isLocked, approvals: unanswered))
     }
 
     private func command(_ request: CommandRequest) async throws -> (status: Int, body: Data) {
@@ -753,9 +772,29 @@ final class AppModel: ObservableObject {
         guard !tokens.isEmpty else { return }
         let notification = RelayNotification(machineName: machineName, pushTokens: tokens)
         Task {
-            if await connection?.notify(notification) != true {
+            if await connection?.send(notification) != true {
                 note("Couldn't send the notification to your iPhone", isError: true)
             }
+        }
+    }
+
+    /// Tells the relay what the iPhones' lock screen cards should show for this Mac, when that changed. Runs every
+    /// second, which also catches the screen locking or unlocking.
+    private func updateCard() {
+        var cards: [String] = []
+        for card in devices.compactMap(\.cardId) where CardId.isValid(card) && !cards.contains(card) {
+            cards.append(card)
+        }
+        guard !cards.isEmpty, relayState == .connected else {
+            if cards.isEmpty { sentCard = nil }
+            return
+        }
+        let card = RelayCard(cards: cards.sorted(), locked: ScreenController.isLocked,
+                             approvals: waitingApprovals.sorted { $0.id < $1.id }.map(RelayCard.Waiting.init))
+        if let sentCard, sentCard.isSame(as: card) { return }
+        sentCard = card
+        Task {
+            if await connection?.send(card) != true, sentCard == card { sentCard = nil }
         }
     }
 

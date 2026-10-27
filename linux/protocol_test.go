@@ -110,3 +110,33 @@ func TestSealedPasswordJSONMatchesSwift(t *testing.T) {
 		t.Fatalf("command: %+v", command)
 	}
 }
+
+// The same JSON is in the Swift tests (ProtocolTests.cardJSON).
+const jsonCard = `{"card":{"approvals":[{"detail":"ruben on pts/1","expiresIn":60,"id":"a1","title":"sudo true"}],"cards":["` +
+	"abababababababababababababababababababababababababababababababab" + `"],"locked":true}}`
+
+func TestCardJSONMatchesSwift(t *testing.T) {
+	card := strings.Repeat("ab", 32)
+	locked := true
+	data, _ := json.Marshal(RelayCard{Card: Card{Cards: []string{card}, Locked: &locked,
+		Approvals: []CardWaiting{{ID: "a1", Title: "sudo true", Detail: "ruben on pts/1", ExpiresIn: 60}}}})
+	if string(data) != jsonCard {
+		t.Fatalf("agent writes\n%s", data)
+	}
+	empty, _ := json.Marshal(RelayCard{Card: Card{Cards: []string{card}, Approvals: []CardWaiting{}}})
+	if string(empty) != `{"card":{"approvals":[],"cards":["`+card+`"]}}` {
+		t.Fatalf("agent writes\n%s", empty)
+	}
+	var hello HelloRequest
+	if json.Unmarshal([]byte(`{"cardId":"`+card+`","deviceId":"d"}`), &hello) != nil || hello.CardID == nil || *hello.CardID != card {
+		t.Fatalf("hello: %+v", hello)
+	}
+}
+
+func TestValidCardID(t *testing.T) {
+	// SHA-256 of "secret", as CardId.of(secret:) makes it in Swift.
+	id := "2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b"
+	if !validCardID(id) || validCardID(strings.ToUpper(id)) || validCardID(id[1:]) || validCardID(id[1:]+"/") {
+		t.Fatal("validCardID")
+	}
+}

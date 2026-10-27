@@ -26,6 +26,7 @@ iPhone ──HTTPS──▶ relay (relay.glancekey.com, Cloudflare) ◀──Web
   - It only accepts a signature over that nonce, the computer's ID, the iPhone's ID and the action.
 - **The relay is not trusted.** It only passes messages along. It can't forge or replay an unlock or an approval, and it never sees the pairing code: the iPhone sends an HMAC proof tied to its key instead. It does see what's waiting for approval, and it could decline a request or stop passing messages on.
 - **Notifications only name the computer.** A computer that waits for you asks the relay to notify your iPhone; the relay sends "… is waiting for you" through Apple's push service and stores nothing. What's waiting travels over the relay when the app asks, not in the notification.
+- **The Lock Screen card shows what's waiting.** The relay keeps the card's contents so it can push changes (see [Lock Screen card](#lock-screen-card)): computer names and whether each is locked while the card is on, and a waiting request with its command until it's answered or expires. The card's buttons send the same signed requests as the app, with the same Face ID key. They open the app, which asks for Face ID, because iOS only lets an app do that while it's on screen; the links carry the card's own key, so a web page can't open them.
 - **Relay slot:** each computer claims its slot on the relay with a secret, so nobody else can connect in its place.
 - **Login passwords stay on each computer:**
   - Mac: in the login keychain.
@@ -108,6 +109,19 @@ It covers two kinds of dialogs:
 - Administrator dialogs (`SecurityAgent`): System Settings, installers, `osascript … with administrator privileges`.
 
 Turn it off with **Fill in password dialogs from iPhone** in the menu bar item. It needs the saved password and Accessibility access.
+
+## Lock Screen card
+
+The iPhone shows your computers on the Lock Screen and in the Dynamic Island (a Live Activity): which are locked, and requests such as sudo, with **Unlock**, **Lock** and **Approve**. The buttons open GlanceKey, which asks for Face ID and does it straight away: iOS doesn't let an app ask for Face ID from the Lock Screen. To deny a request, tap it to open it in the app. A button that's working shows a progress ring on the card. Turn it off with **Show on the Lock Screen** in the app.
+
+How it stays current:
+- The iPhone app makes a card secret; the card's id on the relay is its SHA-256. It registers the card at `POST /v1/card/<id>` (`iOS/LiveCardController.swift`): the computers it lists, a key for the card's links, and Apple's tokens to start a card and to update the running one. It gives the computers only the id, in `hello`.
+- Each computer sends `{"card": {"cards", "locked", "approvals"}}` over its WebSocket whenever that changes (`linux/card.go`, `Mac/AppModel.swift`). It checks the lock screen every few seconds while an iPhone has a card.
+- The relay's `Card` Durable Object keeps the latest part of each computer, marks a computer offline when its connection goes, drops requests when they expire, and pushes the whole card with the APNs key (`apns-push-type: liveactivity`), at most once a second.
+- iOS ends a Live Activity after eight hours. The relay then starts a new one (push-to-start) when a computer locks, comes back locked, or asks for something, at most every ten minutes, and iOS wakes the app to register the new card's update token. Opening the app also starts one.
+- Computers on an older version don't send their part; the card shows what the app last saw for them.
+
+Like notifications, the card needs the relay's APNs key, so a self-hosted relay needs your own app build; without it, the card only changes while the app is open.
 
 ## Notifications
 

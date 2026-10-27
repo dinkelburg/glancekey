@@ -17,6 +17,8 @@ type PairedDevice struct {
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 	// PushToken is where to notify the iPhone when an approval is waiting (see validPushToken).
 	PushToken string `json:"pushToken,omitempty"`
+	// CardID is the iPhone's lock screen card on the relay (see RelayCard).
+	CardID string `json:"cardId,omitempty"`
 	// PasswordKey is the iPhone's password key (X9.63), which the password is sealed to (seal.go). Empty for an
 	// iPhone on an older app version.
 	PasswordKey []byte `json:"passwordKey,omitempty"`

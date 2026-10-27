@@ -80,6 +80,8 @@ targets:
     dependencies:
       - package: AppCore
         product: AppCore
+      # Draws the lock screen card.
+      - target: PhoneWidgets
     info:
       path: iOS/Info.plist
       properties:
@@ -97,6 +99,10 @@ targets:
           - CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER)
             CFBundleURLSchemes: [$(APP_ID)]
         UILaunchScreen: {}
+        # The lock screen card (iOS/Shared/LiveCard.swift). Frequent updates: it follows the computers locking and
+        # unlocking, which the relay pushes as they happen.
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
@@ -118,3 +124,27 @@ targets:
         # separate setting in App Store Connect (Pricing and Availability), which should be off too.
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+  # Draws the lock screen card (a Live Activity) on the Lock Screen and in the Dynamic Island.
+  PhoneWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - iOSWidgets
+      - iOS/Shared
+    dependencies:
+      - package: AppCore
+        product: AppCore
+    info:
+      path: iOSWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: $(APP_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_NAME: Widgets
+        PRODUCT_BUNDLE_IDENTIFIER: nl.dinkelworks.$(APP_ID).widgets
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES

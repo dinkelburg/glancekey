@@ -36,6 +36,7 @@
       <li><a href="#using">Unlocking</a></li>
       <li><a href="#sudo">Approving sudo</a></li>
       <li><a href="#dialogs">Mac password dialogs</a></li>
+      <li><a href="#card">Lock Screen card</a></li>
       <li><a href="#notifications">Notifications</a></li>
       <li><a href="#relay">Your own relay</a></li>
       <li><a href="#updating">Updating and removing</a></li>
@@ -107,6 +108,10 @@ sudo glancekey-agent disable-sudo   # back to just your password</code></pre>
 
     <h2 id="dialogs">Mac password dialogs</h2>
     <p>When a Mac dialog asks for your password, such as 1Password, Safari passwords, System Settings or an installer, it shows up on your iPhone. Tap <strong>Approve</strong> and look at your phone, and GlanceKey types your saved password into that dialog. <strong>Deny</strong> cancels it. Handle the dialog on the Mac instead and the request disappears from your phone. Switch it off with <strong>Fill in password dialogs from iPhone</strong> in the menu.</p>
+
+    <h2 id="card">Lock Screen card</h2>
+    <p>Your iPhone shows your computers on the Lock Screen and in the Dynamic Island: which are locked, and requests like sudo. Tap <strong>Unlock</strong> or <strong>Lock</strong> next to a computer, or <strong>Approve</strong> next to a request. These open GlanceKey, which checks your face and does it straight away. To deny a request, tap it to see it in the app.</p>
+    <p>It shows up when you open GlanceKey, and again when a computer locks or asks for something. To turn it off, switch off <strong>Show on the Lock Screen</strong> in the app. A computer running an older version of GlanceKey shows what the app saw when you last opened it.</p>
 
     <h2 id="notifications">Notifications</h2>
     <p>In the iPhone app, turn on <strong>Notify me</strong>. When a computer waits for you, your iPhone gets a notification that names the computer; tap it to open GlanceKey. What's waiting travels over the relay when the app asks, never in the notification.</p>

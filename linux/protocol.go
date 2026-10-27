@@ -73,6 +73,8 @@ type HelloRequest struct {
 	DeviceID string `json:"deviceId"`
 	// PushToken is the iPhone's push token (see validPushToken): nil leaves the saved one, "" removes it.
 	PushToken *string `json:"pushToken,omitempty"`
+	// CardID is the iPhone's lock screen card on the relay (see RelayCard): nil leaves the saved one, "" removes it.
+	CardID *string `json:"cardId,omitempty"`
 }
 
 type HelloResponse struct {
@@ -148,6 +150,50 @@ type Notify struct {
 	PushTokens  []string `json:"pushTokens"`
 }
 
+// RelayCard is what the agent sends the relay over its WebSocket for the iPhones' lock screen cards, whenever it
+// changes: whether the screen is locked and what's waiting for approval. The relay keeps the latest one for each
+// card, combines the computers on it and pushes the card to the iPhone through Apple's push service (a Live
+// Activity). Fields are in alphabetical order, as the Swift tests pin them.
+type RelayCard struct {
+	Card Card `json:"card"`
+}
+
+type Card struct {
+	Approvals []CardWaiting `json:"approvals"`
+	// Cards are the cards of the paired iPhones that have one (validCardID).
+	Cards []string `json:"cards"`
+	// Locked is nil if the agent couldn't tell.
+	Locked *bool `json:"locked,omitempty"`
+}
+
+// CardWaiting is an Approval without its challenge, which the iPhone gets from the agent itself when it answers.
+type CardWaiting struct {
+	Detail    string `json:"detail"`
+	ExpiresIn int    `json:"expiresIn"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+}
+
+// sameAs reports whether two cards are the same apart from the seconds left on each request.
+func (c Card) sameAs(other Card) bool {
+	if len(c.Approvals) != len(other.Approvals) || len(c.Cards) != len(other.Cards) ||
+		(c.Locked == nil) != (other.Locked == nil) || c.Locked != nil && *c.Locked != *other.Locked {
+		return false
+	}
+	for i, waiting := range c.Approvals {
+		waiting.ExpiresIn = other.Approvals[i].ExpiresIn
+		if waiting != other.Approvals[i] {
+			return false
+		}
+	}
+	for i, card := range c.Cards {
+		if card != other.Cards[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // signedMessage is what the iPhone signs for a command.
 func signedMessage(machineID, deviceID string, action Action, nonce string) []byte {
 	return []byte(fmt.Sprintf("faceunlock/v1\n%s\n%s\n%s\n%s", machineID, deviceID, action, nonce))
@@ -184,6 +230,20 @@ func validPushToken(token string) bool {
 	}
 	for _, c := range token {
 		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// validCardID allows a lock screen card's id on the relay: the SHA-256 (lowercase hex) of a secret only the iPhone
+// knows, which it needs to tell the relay where to push the card. The agent only gets the id.
+func validCardID(id string) bool {
+	if len(id) != 64 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
 			return false
 		}
 	}

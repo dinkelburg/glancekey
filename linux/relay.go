@@ -88,6 +88,7 @@ func (a *Agent) serveRelay(ctx context.Context) (bool, error) {
 
 	done := make(chan struct{})
 	defer close(done)
+	go a.runCard(done, write)
 	go func() {
 		// Ping to keep NAT mappings alive. Go timers pause during suspend, so also watch the wall clock:
 		// a jump means the machine slept and the connection is probably dead, so reconnect right away.

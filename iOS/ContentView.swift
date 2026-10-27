@@ -1,3 +1,4 @@
+import ActivityKit
 import AppCore
 import SwiftUI
 
@@ -55,6 +56,17 @@ struct ContentView: View {
     }
 
     private var machineList: some View {
+        ScrollViewReader { proxy in
+            list
+                .onChange(of: model.scrollTarget) { _, target in
+                    guard let target else { return }
+                    withAnimation { proxy.scrollTo(target, anchor: .top) }
+                    model.scrollTarget = nil
+                }
+        }
+    }
+
+    private var list: some View {
         List {
             if let result = model.pairingResult {
                 Section {
@@ -66,6 +78,7 @@ struct ContentView: View {
                 Section("Waiting for you") {
                     ForEach(model.waitingApprovals) { waiting in
                         ApprovalCard(waiting: waiting)
+                            .id(waiting.id)
                     }
                 }
             }
@@ -86,6 +99,7 @@ struct ContentView: View {
             ForEach(model.machines) { machine in
                 Section {
                     MachineCard(machine: machine)
+                        .id(machine.machineId)
                 }
             }
             Section {
@@ -97,6 +111,7 @@ struct ContentView: View {
             } footer: {
                 Text("Opening \(Brand.name) unlocks the one locked computer; with more, tap the one you want. Requests like sudo always wait for you to tap Approve. Tip: add “Unlock Computer” to the Action button, Control Center or your Home Screen in Shortcuts.")
             }
+            LiveCardSection()
             NotificationsSection()
             Section {
                 AboutLinks()
@@ -168,6 +183,31 @@ private struct ApprovalCard: View {
     private var isWorking: Bool {
         if case .working = model.approvalState(for: waiting) { return true }
         return false
+    }
+}
+
+private struct LiveCardSection: View {
+    @EnvironmentObject private var model: PhoneModel
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isAllowed = ActivityAuthorizationInfo().areActivitiesEnabled
+
+    var body: some View {
+        Section {
+            Toggle("Show on the Lock Screen", isOn: $model.liveCardEnabled)
+            if model.liveCardEnabled && !isAllowed {
+                Label("Allow Live Activities for \(Brand.name) in Settings.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                Link("Open Settings", destination: URL(string: UIApplication.openSettingsURLString)!)
+            }
+        } header: {
+            Text("Lock Screen")
+        } footer: {
+            Text("Your computers on the Lock Screen and in the Dynamic Island: which are locked, and requests like sudo, with buttons to unlock, lock and approve. To show the command, it passes through Apple's push service.")
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { isAllowed = ActivityAuthorizationInfo().areActivitiesEnabled }
+        }
     }
 }
 

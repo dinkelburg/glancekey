@@ -3,6 +3,7 @@ build/
 *.xcodeproj/
 Mac/Info.plist
 iOS/Info.plist
+iOSWidgets/Info.plist
 .DS_Store
 xcuserdata/
 relay/node_modules/

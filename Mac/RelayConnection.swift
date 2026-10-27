@@ -111,9 +111,9 @@ final class RelayConnection: NSObject, URLSessionWebSocketDelegate {
         }
     }
 
-    /// Asks the relay to push a notification to the iPhones. False if it didn't reach the relay.
-    func notify(_ notification: RelayNotification) async -> Bool {
-        guard state == .connected, let task, let encoded = try? JSONEncoder().encode(notification) else { return false }
+    /// Sends the relay a message of its own (`RelayNotification`, `RelayCard`). False if it didn't reach the relay.
+    func send(_ message: some Encodable) async -> Bool {
+        guard state == .connected, let task, let encoded = try? JSONEncoder().encode(message) else { return false }
         return (try? await task.send(.string(String(decoding: encoded, as: UTF8.self)))) != nil
     }
 

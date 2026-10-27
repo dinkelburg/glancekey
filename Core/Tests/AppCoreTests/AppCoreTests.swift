@@ -255,6 +255,37 @@ struct ProtocolTests {
         }
     }
 
+    // The same JSON is in the Go tests (TestCardJSONMatchesSwift), and the relay reads it (relay/tests).
+    @Test func cardJSON() throws {
+        let card = String(repeating: "ab", count: 32)
+        let encoder = JSONEncoder()
+        // Escaped or not, "/" reads the same; this pins the field names.
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let message = RelayCard(cards: [card], locked: true,
+                                approvals: [RelayCard.Waiting(id: "a1", title: "sudo true", detail: "ruben on pts/1", expiresIn: 60)])
+        #expect(String(decoding: try encoder.encode(message), as: UTF8.self)
+            == #"{"card":{"approvals":[{"detail":"ruben on pts/1","expiresIn":60,"id":"a1","title":"sudo true"}],"cards":["\#(card)"],"locked":true}}"#)
+        #expect(String(decoding: try encoder.encode(RelayCard(cards: [card], locked: nil, approvals: [])), as: UTF8.self)
+            == #"{"card":{"approvals":[],"cards":["\#(card)"]}}"#)
+        #expect(String(decoding: try encoder.encode(HelloRequest(deviceId: "d", cardId: card)), as: UTF8.self)
+            == #"{"cardId":"\#(card)","deviceId":"d"}"#)
+
+        var later = message
+        later.card.approvals[0].expiresIn = 59
+        #expect(later.isSame(as: message))
+        later.card.locked = false
+        #expect(!later.isSame(as: message))
+    }
+
+    @Test func cardIds() {
+        let id = CardId.of(secret: "secret")
+        #expect(id == "2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b")
+        #expect(CardId.isValid(id))
+        #expect(!CardId.isValid(id.uppercased()))
+        #expect(!CardId.isValid(String(id.dropLast())))
+        #expect(!CardId.isValid(String(id.dropLast()) + "/"))
+    }
+
     @Test func pushTokens() {
         let token = String(repeating: "0123456789abcdef", count: 4)
         #expect(PushToken.isValid(token))

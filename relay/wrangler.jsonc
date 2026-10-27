@@ -6,9 +6,16 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "durable_objects": {
-    "bindings": [{ "name": "MACHINES", "class_name": "Machine" }]
+    "bindings": [
+      { "name": "MACHINES", "class_name": "Machine" },
+      // The iPhones' lock screen cards, one per iPhone.
+      { "name": "CARDS", "class_name": "Card" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Machine"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Machine"] },
+    { "tag": "v2", "new_sqlite_classes": ["Card"] }
+  ],
   // The apps use relay.glancekey.com. Installs and pairings from before 2026-10-26 still use
   // glancekey.dinkelworks.nl; both reach the same Durable Objects, so they work together.
   "routes": [

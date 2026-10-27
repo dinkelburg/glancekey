@@ -10,14 +10,18 @@ public struct PairedDevice: Codable, Identifiable, Equatable, Sendable {
     public var lastUsedAt: Date?
     /// Where to notify the iPhone when an approval is waiting (see `PushToken`).
     public var pushToken: String?
+    /// The iPhone's lock screen card on the relay (see `RelayCard`).
+    public var cardId: String?
 
-    public init(id: String, name: String, publicKey: Data, pairedAt: Date, lastUsedAt: Date? = nil, pushToken: String? = nil) {
+    public init(id: String, name: String, publicKey: Data, pairedAt: Date, lastUsedAt: Date? = nil, pushToken: String? = nil,
+                cardId: String? = nil) {
         self.id = id
         self.name = name
         self.publicKey = publicKey
         self.pairedAt = pairedAt
         self.lastUsedAt = lastUsedAt
         self.pushToken = pushToken
+        self.cardId = cardId
     }
 
     /// Checks the iPhone's signature over `message` with its paired key.

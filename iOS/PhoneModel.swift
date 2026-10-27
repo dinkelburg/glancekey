@@ -87,6 +87,18 @@ final class PhoneModel: ObservableObject {
     }
     /// Why notifications don't work, if they don't.
     @Published var notificationProblem: String?
+    /// The lock screen card (`LiveCardController`).
+    @Published var liveCardEnabled = LiveCardController.shared.isEnabled {
+        didSet {
+            guard liveCardEnabled != oldValue else { return }
+            Task {
+                await LiveCardController.shared.setEnabled(liveCardEnabled)
+                await refresh()
+            }
+        }
+    }
+    /// A request or computer the list should scroll to: the one a lock screen card button was about.
+    @Published var scrollTarget: String?
     /// Where Apple delivers this iPhone's notifications; nil until Apple hands it over.
     private var pushToken: String?
 
@@ -140,13 +152,14 @@ final class PhoneModel: ObservableObject {
 
     /// Asks every paired computer whether it's locked and what it's waiting for, all at once.
     func refresh() async {
-        // Sending "" when notifications are off makes the computers forget the token.
+        // Sending "" when notifications or the card are off makes the computers forget them.
         let token = notificationsEnabled ? pushToken : ""
+        let card = LiveCardController.shared.cardIdForComputers
         let results = await withTaskGroup(of: (PairedMachine, Result<HelloResponse, Error>).self) { group in
             for machine in machines {
                 group.addTask {
                     do {
-                        return (machine, .success(try await machine.client.hello(deviceId: machine.deviceId, pushToken: token)))
+                        return (machine, .success(try await machine.client.hello(deviceId: machine.deviceId, pushToken: token, cardId: card)))
                     } catch {
                         return (machine, .failure(error))
                     }
@@ -167,6 +180,26 @@ final class PhoneModel: ObservableObject {
                 statuses[machine.machineId] = MachineStatus(error: Self.describe(error))
             }
         }
+        await LiveCardController.shared.show(liveCardContent)
+    }
+
+    /// What the lock screen card shows, as far as the app knows.
+    var liveCardContent: LiveCardAttributes.ContentState {
+        let computers = machines.map { machine -> LiveCardAttributes.ContentState.Computer in
+            let status = statuses[machine.machineId]
+            let state: LiveCardAttributes.ContentState.Computer.State = switch (status?.error, status?.locked) {
+            case (.some, _): .offline
+            case (nil, true?): .locked
+            case (nil, false?): .unlocked
+            default: .unknown
+            }
+            return .init(id: machine.machineId, name: machine.machineName, state: state)
+        }
+        let requests = waitingApprovals.prefix(3).map {
+            LiveCardAttributes.ContentState.Request(computer: $0.machine.machineId, id: $0.approval.id, title: $0.approval.title,
+                                                    detail: $0.approval.detail, until: Int($0.expiresAt.timeIntervalSince1970))
+        }
+        return .init(computers: computers, requests: Array(requests), key: LiveCardController.shared.key)
     }
 
     /// Opening the app (or tapping the notification, Siri or the Action button) unlocks the one locked computer.
@@ -273,6 +306,7 @@ final class PhoneModel: ObservableObject {
         states[machine.machineId] = .finished(result)
         if result.success, action != .status {
             statuses[machine.machineId]?.locked = action == .lock
+            await LiveCardController.shared.set(machine.machineId, to: action == .lock ? .locked : .unlocked)
         }
         haptic(for: result)
         return result
@@ -369,7 +403,10 @@ final class PhoneModel: ObservableObject {
         }
         for (machineId, result) in results {
             states[machineId] = .finished(result)
-            if result.success { statuses[machineId]?.locked = false }
+            if result.success {
+                statuses[machineId]?.locked = false
+                await LiveCardController.shared.set(machineId, to: .unlocked)
+            }
         }
         let failed = targets.count - results.values.filter(\.success).count
         let result = failed == 0
@@ -392,16 +429,18 @@ final class PhoneModel: ObservableObject {
         context.localizedCancelTitle = "Cancel"
         let title = approval.title.count > 60 ? String(approval.title.prefix(59)) + "…" : approval.title
         let result: OperationResult
+        var sent = false
         do {
             try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Approve “\(title)” on \(machine.machineName)")
             let message = ApprovalMessage.bytes(machineId: machine.machineId, deviceId: machine.deviceId, approval: approval)
             let signature = try DeviceKey.sign(message, tag: machine.deviceId, context: context)
+            sent = true
             let response = try await machine.client.approve(approval, signature: signature, deviceId: machine.deviceId)
             result = OperationResult(success: response.ok, message: response.ok ? "Approved on \(machine.machineName)" : response.message)
         } catch {
             result = OperationResult(success: false, message: Self.describe(error))
         }
-        finish(waiting, with: result)
+        finish(waiting, with: result, answered: sent)
         return result
     }
 
@@ -416,15 +455,16 @@ final class PhoneModel: ObservableObject {
         } catch {
             result = OperationResult(success: false, message: Self.describe(error))
         }
-        finish(waiting, with: result)
+        finish(waiting, with: result, answered: true)
     }
 
-    private func finish(_ waiting: WaitingApproval, with result: OperationResult) {
+    /// `answered`: the answer went to the computer. If Face ID stopped it before that, the request is still waiting.
+    private func finish(_ waiting: WaitingApproval, with result: OperationResult, answered: Bool) {
         approvalStates[waiting.id] = .finished(result)
-        // A cancelled Face ID leaves the request waiting; anything else has answered it.
-        if result.message != "Cancelled" {
+        if answered {
             statuses[waiting.machine.machineId]?.approvals.removeAll { $0.id == waiting.id }
             states[waiting.machine.machineId] = .finished(result)
+            Task { await LiveCardController.shared.remove(request: waiting.id) }
         }
         haptic(for: result)
     }
@@ -448,8 +488,42 @@ final class PhoneModel: ObservableObject {
 
     func handle(url: URL) {
         autoUnlockTask?.cancel()
-        guard url.scheme == Brand.urlScheme, let invite = invite(from: url.absoluteString) else { return }
-        pendingInvite = invite
+        guard url.scheme == Brand.urlScheme else { return }
+        switch url.host {
+        case "card":
+            if let link = LiveCardLink(url: url, key: LiveCardController.shared.key) { Task { await open(link) } }
+        default:
+            if let invite = invite(from: url.absoluteString) { pendingInvite = invite }
+        }
+    }
+
+    /// A button on the lock screen card that needs Face ID, which opened the app.
+    private func open(_ link: LiveCardLink) async {
+        switch link {
+        case .open(let request):
+            await refresh()
+            scrollTarget = request
+        case .unlock(let computer), .lock(let computer):
+            guard let machine = machines.first(where: { $0.machineId == computer }) else { return }
+            scrollTarget = computer
+            let unlocking = link == .unlock(computer: computer)
+            // The card shows it working too, for when you go back to the Lock Screen.
+            await LiveCardController.shared.setBusy(computer, unlocking ? .unlock : .lock)
+            await perform(unlocking ? .unlock : .lock, on: machine)
+            await LiveCardController.shared.setBusy(computer, nil)
+        case .approve(let computer, let request):
+            // The request as the computer has it now, with its challenge; Face ID names it before anything is signed.
+            await refresh()
+            if let waiting = waitingApprovals.first(where: { $0.machine.machineId == computer && $0.approval.id == request }) {
+                scrollTarget = request
+                await LiveCardController.shared.setBusy(request, .approve)
+                await approve(waiting)
+                await LiveCardController.shared.setBusy(request, nil)
+            } else if machines.contains(where: { $0.machineId == computer }) {
+                states[computer] = .finished(OperationResult(success: false, message: "That request isn't waiting anymore."))
+                scrollTarget = computer
+            }
+        }
     }
 
     /// Pairs with a code you pasted, after asking if it replaces a pairing.

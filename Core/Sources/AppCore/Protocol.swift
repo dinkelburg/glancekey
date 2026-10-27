@@ -143,10 +143,14 @@ public struct HelloRequest: Codable, Sendable {
     /// The iPhone's push token (see `PushToken`), so the computer can notify it when it's waiting for an approval.
     /// nil leaves the saved token as it is; "" removes it.
     public var pushToken: String?
+    /// The iPhone's lock screen card on the relay (see `RelayCard`), which the computer keeps up to date.
+    /// nil leaves the saved one as it is; "" removes it.
+    public var cardId: String?
 
-    public init(deviceId: String, pushToken: String? = nil) {
+    public init(deviceId: String, pushToken: String? = nil, cardId: String? = nil) {
         self.deviceId = deviceId
         self.pushToken = pushToken
+        self.cardId = cardId
     }
 }
 
@@ -302,6 +306,66 @@ public struct RelayNotification: Codable, Sendable {
 
     public init(machineName: String, pushTokens: [String]) {
         notify = Notify(machineName: machineName, pushTokens: pushTokens)
+    }
+}
+
+/// What the computer sends the relay over its WebSocket for the iPhones' lock screen cards, whenever it changes:
+/// whether it's locked and what's waiting for approval. The relay keeps the latest one for each card, combines the
+/// computers on it and pushes the card to the iPhone through Apple's push service (a Live Activity).
+public struct RelayCard: Codable, Equatable, Sendable {
+    /// An `Approval` without its challenge, which the iPhone gets from the computer itself when it answers.
+    public struct Waiting: Codable, Equatable, Sendable {
+        public var id: String
+        public var title: String
+        public var detail: String
+        public var expiresIn: Int
+
+        public init(id: String, title: String, detail: String, expiresIn: Int) {
+            self.id = id
+            self.title = title
+            self.detail = detail
+            self.expiresIn = expiresIn
+        }
+
+        public init(_ approval: Approval) {
+            self.init(id: approval.id, title: approval.title, detail: approval.detail, expiresIn: approval.expiresIn)
+        }
+    }
+
+    public struct Card: Codable, Equatable, Sendable {
+        /// The cards of the paired iPhones that have one (`CardId`).
+        public var cards: [String]
+        /// nil if the computer couldn't tell.
+        public var locked: Bool?
+        public var approvals: [Waiting]
+    }
+
+    public var card: Card
+
+    public init(cards: [String], locked: Bool?, approvals: [Waiting]) {
+        card = Card(cards: cards, locked: locked, approvals: approvals)
+    }
+
+    /// The same card apart from the seconds left on each request, which change all the time.
+    public func isSame(as other: RelayCard) -> Bool {
+        func stable(_ card: Card) -> Card {
+            var card = card
+            card.approvals = card.approvals.map { var waiting = $0; waiting.expiresIn = 0; return waiting }
+            return card
+        }
+        return stable(card) == stable(other.card)
+    }
+}
+
+/// A lock screen card's id on the relay: the SHA-256 (hex) of a secret only the iPhone knows, which it needs to
+/// tell the relay where to push the card. The computers only get the id.
+public enum CardId {
+    public static func isValid(_ id: String) -> Bool {
+        id.count == 64 && id.allSatisfy { $0.isASCII && $0.isHexDigit && !$0.isUppercase }
+    }
+
+    public static func of(secret: String) -> String {
+        SHA256.hash(data: Data(secret.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, verify } from "node:crypto";
+import { createHash, generateKeyPairSync, verify } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { after, test } from "node:test";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
@@ -27,7 +27,10 @@ const relay = new Miniflare(convertV4MiniflareOptions({
   modules: true,
   script: outputText,
   compatibilityDate: "2026-10-01",
-  durableObjects: { MACHINES: { className: "Machine", useSQLite: true } },
+  durableObjects: {
+    MACHINES: { className: "Machine", useSQLite: true },
+    CARDS: { className: "Card", useSQLite: true },
+  },
   bindings: {
     APNS_KEY: apnsKey.privateKey.export({ type: "pkcs8", format: "pem" }),
     APNS_KEY_ID: "KEYID12345",
@@ -133,8 +136,8 @@ test("replacing an agent fails old pending requests and routes new ones", { time
   }
 });
 
-async function pushesFor(token, count) {
-  const deadline = Date.now() + 2000;
+async function pushesFor(token, count, wait = 2000) {
+  const deadline = Date.now() + wait;
   let found;
   while ((found = pushes.filter((push) => push.url.pathname === `/3/device/${token}`)).length < count) {
     if (Date.now() > deadline) throw new Error(`Expected ${count} push(es) to ${token}, got ${found.length}`);
@@ -181,6 +184,146 @@ test("a computer can only send a few notifications a minute", { timeout: 5000 },
     await pushesFor(token, 6);
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal((await pushesFor(token, 6)).length, 6);
+  } finally {
+    socket.close(1000);
+  }
+});
+
+// MARK: - Lock screen cards
+
+function newCard() {
+  const secret = crypto.randomUUID() + crypto.randomUUID();
+  return { secret, id: createHash("sha256").update(secret).digest("hex") };
+}
+
+async function register(card, body) {
+  return relay.dispatchFetch(`http://localhost/v1/card/${card.id}`, {
+    method: "POST",
+    body: JSON.stringify({ secret: card.secret, on: true, key: "card-key-0123456789", ...body }),
+  });
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const liveToken = () => [...crypto.getRandomValues(new Uint8Array(40))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+test("only the iPhone with the card's secret can register it", { timeout: 5000 }, async () => {
+  const card = newCard();
+  assert.equal((await relay.dispatchFetch("http://localhost/v1/card/not-a-card", { method: "POST", body: "{}" })).status, 400);
+  assert.equal((await register({ ...card, secret: "x".repeat(40) }, { computers: [] })).status, 403);
+  assert.equal((await register(card, { computers: [], key: "short" })).status, 400);
+  assert.equal((await register(card, { computers: [] })).status, 200);
+});
+
+test("a computer's changes update the iPhone's card", { timeout: 10000 }, async () => {
+  const card = newCard();
+  const machineId = crypto.randomUUID(), otherId = crypto.randomUUID();
+  const token = liveToken();
+  const registered = await register(card, {
+    computers: [{ id: machineId, name: "Mac", state: "unknown" }, { id: otherId, name: "Omarchy", state: "locked" }, { id: "bad id", name: "x" }],
+    updateToken: token,
+    startedAt: Date.now() / 1000,
+  });
+  assert.equal(registered.status, 200);
+
+  const socket = await connect(machineId);
+  const waiting = { id: "a1", title: "sudo true", detail: "ruben on pts/1", expiresIn: 60 };
+  socket.send(JSON.stringify({ card: { cards: [card.id, "not-a-card"], locked: true, approvals: [waiting] } }));
+  const [push] = await pushesFor(token, 1);
+  assert.equal(push.headers.get("apns-push-type"), "liveactivity");
+  assert.equal(push.headers.get("apns-topic"), "com.example.app.push-type.liveactivity");
+  assert.equal(push.body.aps.event, "update");
+  const state = push.body.aps["content-state"];
+  assert.deepEqual(state.computers, [
+    { id: machineId, name: "Mac", state: "locked" },
+    // Hasn't sent its part: what the iPhone last saw.
+    { id: otherId, name: "Omarchy", state: "locked" },
+  ]);
+  assert.equal(state.requests.length, 1);
+  const { until, ...request } = state.requests[0];
+  assert.deepEqual(request, { computer: machineId, id: "a1", title: "sudo true", detail: "ruben on pts/1" });
+  assert.ok(Math.abs(until - (Date.now() / 1000 + 60)) < 5);
+  assert.equal(state.key, "card-key-0123456789");
+
+  // The same again changes nothing.
+  socket.send(JSON.stringify({ card: { cards: [card.id], locked: true, approvals: [{ ...waiting, expiresIn: 59 }] } }));
+  await sleep(1500);
+  assert.equal((await pushesFor(token, 1)).length, 1);
+
+  // Disconnecting shows it offline, without its requests.
+  socket.close(1000);
+  const [, offline] = await pushesFor(token, 2, 4000);
+  assert.deepEqual(offline.body.aps["content-state"].computers[0], { id: machineId, name: "Mac", state: "offline" });
+  assert.deepEqual(offline.body.aps["content-state"].requests, []);
+});
+
+test("an ended card starts again when a computer locks or asks for something", { timeout: 10000 }, async () => {
+  const card = newCard();
+  const machineId = crypto.randomUUID();
+  const startToken = liveToken();
+  assert.equal((await register(card, { computers: [{ id: machineId, name: "Mac", state: "unknown" }], startToken })).status, 200);
+  const socket = await connect(machineId);
+  try {
+    // Unlocked is no reason to light up the iPhone.
+    socket.send(JSON.stringify({ card: { cards: [card.id], locked: false, approvals: [] } }));
+    await sleep(800);
+    assert.equal(pushes.filter((push) => push.url.pathname === `/3/device/${startToken}`).length, 0);
+
+    socket.send(JSON.stringify({ card: { cards: [card.id], locked: true, approvals: [] } }));
+    const [start] = await pushesFor(startToken, 1, 3000);
+    assert.equal(start.body.aps.event, "start");
+    assert.equal(start.body.aps["attributes-type"], "LiveCardAttributes");
+    assert.deepEqual(start.body.aps.attributes, {});
+    assert.equal(start.body.aps.alert.title, "Mac is locked");
+    assert.equal(start.body.aps["content-state"].computers[0].state, "locked");
+
+    // A change before the iPhone says where the new card is waits for it.
+    socket.send(JSON.stringify({ card: { cards: [card.id], locked: false, approvals: [] } }));
+    await sleep(1500);
+    const updateToken = liveToken();
+    assert.equal((await register(card, { computers: [{ id: machineId, name: "Mac", state: "locked" }], startToken, updateToken })).status, 200);
+    const [update] = await pushesFor(updateToken, 1, 3000);
+    assert.equal(update.body.aps.event, "update");
+    assert.equal(update.body.aps["content-state"].computers[0].state, "unlocked");
+    assert.equal(pushes.filter((push) => push.url.pathname === `/3/device/${startToken}`).length, 1);
+  } finally {
+    socket.close(1000);
+  }
+});
+
+test("turning the card off ends it and drops the computer from it", { timeout: 10000 }, async () => {
+  const card = newCard();
+  const machineId = crypto.randomUUID();
+  const token = liveToken();
+  await register(card, { computers: [{ id: machineId, name: "Mac", state: "unknown" }], updateToken: token, startedAt: Date.now() / 1000 });
+  const off = await relay.dispatchFetch(`http://localhost/v1/card/${card.id}`, { method: "POST", body: JSON.stringify({ secret: card.secret, on: false }) });
+  assert.equal(off.status, 200);
+  const [end] = await pushesFor(token, 1);
+  assert.equal(end.body.aps.event, "end");
+  assert.ok(end.body.aps["dismissal-date"] > 0);
+
+  // A computer still sending to it pushes nothing: the card has nowhere to go.
+  const socket = await connect(machineId);
+  try {
+    socket.send(JSON.stringify({ card: { cards: [card.id], locked: true, approvals: [] } }));
+    await sleep(1000);
+    assert.equal((await pushesFor(token, 1)).length, 1);
+  } finally {
+    socket.close(1000);
+  }
+});
+
+test("an expired request leaves the card, and the relay, by itself", { timeout: 10000 }, async () => {
+  const card = newCard();
+  const machineId = crypto.randomUUID();
+  const token = liveToken();
+  await register(card, { computers: [{ id: machineId, name: "Mac", state: "unknown" }], updateToken: token, startedAt: Date.now() / 1000 });
+  const socket = await connect(machineId);
+  try {
+    socket.send(JSON.stringify({ card: { cards: [card.id], locked: false, approvals: [{ id: "a1", title: "sudo true", detail: "", expiresIn: 2 }] } }));
+    const [first] = await pushesFor(token, 1);
+    assert.equal(first.body.aps["content-state"].requests.length, 1);
+    const [, second] = await pushesFor(token, 2, 5000);
+    assert.deepEqual(second.body.aps["content-state"].requests, []);
   } finally {
     socket.close(1000);
   }

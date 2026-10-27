@@ -43,6 +43,8 @@ type Agent struct {
 	// toRelay sends a message over the relay connection while there is one.
 	toRelay   func([]byte) error
 	approvals map[string]*pendingApproval
+	// cardSignal makes runCard look at the lock screen card right away instead of at its next check.
+	cardSignal chan struct{}
 }
 
 func newAgent(state *State, screen Screen, passwords PasswordStore) *Agent {
@@ -54,6 +56,7 @@ func newAgent(state *State, screen Screen, passwords PasswordStore) *Agent {
 		state:       state,
 		relayStatus: "connecting",
 		approvals:   map[string]*pendingApproval{},
+		cardSignal:  make(chan struct{}, 1),
 	}
 }
 
@@ -142,14 +145,22 @@ func (a *Agent) hello(body []byte) (any, error) {
 		return nil, err
 	}
 	a.mu.Lock()
-	known, hasPasswordKey := false, false
+	known, hasPasswordKey, cardChanged := false, false, false
 	for i, device := range a.state.Devices {
 		if device.ID != req.DeviceID {
 			continue
 		}
 		known, hasPasswordKey = true, len(device.PasswordKey) > 0
+		changed := false
 		if token := req.PushToken; token != nil && *token != device.PushToken && (*token == "" || validPushToken(*token)) {
 			a.state.Devices[i].PushToken = *token
+			changed = true
+		}
+		if card := req.CardID; card != nil && *card != device.CardID && (*card == "" || validCardID(*card)) {
+			a.state.Devices[i].CardID = *card
+			changed, cardChanged = true, true
+		}
+		if changed {
 			if err := a.state.save(); err != nil {
 				log.Printf("Couldn't save state: %v", err)
 			}
@@ -161,6 +172,9 @@ func (a *Agent) hello(body []byte) (any, error) {
 	a.mu.Unlock()
 	if !known {
 		return nil, errUnknownDevice
+	}
+	if cardChanged {
+		a.cardChanged()
 	}
 	response := HelloResponse{MachineID: machineID, MachineName: machineName, Approvals: a.waitingApprovals(),
 		WantsPasswordKey: !hasPasswordKey && a.screen.NeedsPassword()}
@@ -240,6 +254,7 @@ func (a *Agent) command(body []byte) (any, error) {
 	a.markUsed(device.ID)
 	if req.Action != actionStatus {
 		log.Printf("%s: %s", device.Name, response.Message)
+		a.cardChanged()
 	}
 	return response, nil
 }

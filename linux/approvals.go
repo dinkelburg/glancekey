@@ -85,10 +85,12 @@ func (a *Agent) serveApproval(conn net.Conn, decoder *json.Decoder, approval *Ap
 	a.mu.Lock()
 	a.approvals[approval.ID] = pending
 	a.mu.Unlock()
+	a.cardChanged()
 	defer func() {
 		a.mu.Lock()
 		delete(a.approvals, approval.ID)
 		a.mu.Unlock()
+		a.cardChanged()
 	}()
 
 	conn.SetDeadline(time.Time{})
@@ -204,6 +206,7 @@ func (a *Agent) answerApproval(req CommandRequest) (any, error) {
 	}
 	pending.answered = true
 	a.mu.Unlock()
+	a.cardChanged()
 	pending.answers <- approvalAnswer{decision: string(req.Action), device: *device, signature: req.Signature}
 
 	if req.Action == actionDeny {
