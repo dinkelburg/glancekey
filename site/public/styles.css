@@ -241,7 +241,7 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
 .app-title { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
 .app-tools { display: flex; gap: 14px; padding: 7px 12px; border-radius: 999px; background: var(--screen-card); box-shadow: 0 1px 3px rgb(0 0 0 / 10%); }
 .app-tools svg { width: 17px; height: 17px; }
-.request, .request { padding: 14px; }
+.request { padding: 14px; overflow: hidden; }
 .request-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .request-head svg { width: 18px; height: 18px; flex: none; }
 .request-time { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--screen-muted); }
@@ -250,7 +250,7 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
 .app-btn { position: relative; display: block; margin-top: 12px; padding: 10px; border-radius: 999px; text-align: center; font-weight: 600; background: var(--button); color: #fff; }
 .app-btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .app-btn-row .secondary { background: rgb(120 135 160 / 16%); color: #e5484d; }
-.rows { border-radius: 22px; background: var(--screen-card); box-shadow: 0 1px 2px rgb(0 0 0 / 6%); }
+.request, .rows { border-radius: 22px; background: var(--screen-card); box-shadow: 0 1px 2px rgb(0 0 0 / 6%); }
 .row { display: flex; align-items: center; gap: 10px; padding: 11px 12px 11px 14px; }
 .row + .row { border-top: 1px solid rgb(120 135 160 / 18%); margin-left: 14px; padding-left: 0; }
 .dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -336,6 +336,8 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
 }
 .terminal p { margin: 0; }
 .prompt { color: #7aa2f7; }
+/* Typed again at the end of the loop, a letter at a time: 16ch is the command's length. */
+.typed { display: inline-block; width: 16ch; overflow: hidden; white-space: nowrap; vertical-align: top; }
 .term-dim { color: #787c99; }
 .term-ok { color: #9ece6a; }
 .stand { position: relative; width: 34px; height: 24px; margin: 0 auto 7px; background: var(--metal); }
@@ -355,11 +357,13 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
 }
 @media (max-width: 379px) { .stage { zoom: .88; } }
 
-/* One 13 s loop, the same twice: tap Approve, the Dynamic Island grows and Face ID shows the
-   face and then a tick, the island shrinks, the approval travels to the workstation and sudo
-   goes on; 40% of the loop later the same with Unlock and the Mac; hold, then start over. */
+/* One 16 s loop that ends where it starts. Tap Approve, the Dynamic Island grows and Face ID
+   shows the face and then a tick, the island shrinks, the approval travels to the workstation,
+   sudo goes on and the request leaves the app. 6 s later the same with Unlock and the Mac. Then
+   the Mac locks itself again, and the workstation's terminal is cleared and sudo is typed once
+   more, which brings the request back. */
 @media (prefers-reduced-motion: no-preference) {
-  .stage { --loop: 13s; }
+  .stage { --loop: 16s; }
   .approve .tap { animation: tap-approve var(--loop) infinite; }
   .approve { animation: press-approve var(--loop) infinite; }
   .island { animation: island var(--loop) cubic-bezier(.3, 1.3, .5, 1) infinite; }
@@ -371,9 +375,13 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
   .to-linux { animation: to-linux var(--loop) ease-in-out infinite; }
   .linux-before { animation: linux-before var(--loop) infinite; }
   .linux-after { animation: linux-after var(--loop) infinite; }
-  .term-out { animation: term-out var(--loop) infinite; }
-  .term-out + .term-out { animation-delay: .4s; }
-  .term-out + .term-out + .term-out { animation-delay: .8s; }
+  .request { animation: request var(--loop) ease-in-out infinite; }
+  .term-cmd { animation: term-cmd var(--loop) infinite; }
+  .typed { animation: typed var(--loop) infinite; }
+  .term-dim { animation: term-dim var(--loop) infinite; }
+  .term-out { animation: term-out-1 var(--loop) infinite; }
+  .term-out + .term-out { animation-name: term-out-2; }
+  .term-out + .term-out + .term-out { animation-name: term-out-3; }
   .unlock .tap { animation: tap-unlock var(--loop) infinite; }
   .unlock { animation: press-unlock var(--loop) infinite; }
   .to-mac { animation: to-mac var(--loop) ease-in-out infinite; }
@@ -381,30 +389,42 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
   .mac-after { animation: mac-after var(--loop) infinite; }
   .desktop { animation: desktop var(--loop) infinite; }
 }
-@keyframes tap-approve { 0%, 7% { opacity: 0; transform: scale(.3); } 8% { opacity: .7; } 11%, 100% { opacity: 0; transform: scale(1.3); } }
-@keyframes press-approve { 0%, 7.5% { transform: none; } 8.5% { transform: scale(.94); } 10.5%, 100% { transform: none; } }
+@keyframes tap-approve { 0%, 5.7% { opacity: 0; transform: scale(.3); } 6.5% { opacity: .7; } 8.9%, 100% { opacity: 0; transform: scale(1.3); } }
+@keyframes press-approve { 0%, 6.1% { transform: none; } 6.9% { transform: scale(.94); } 8.5%, 100% { transform: none; } }
 @keyframes island {
-  0%, 8.5%, 26.5%, 48.5%, 66.5%, 100% { width: 87px; height: 26px; border-radius: 13px; }
-  10.5%, 24.5%, 50.5%, 64.5% { width: 104px; height: 104px; border-radius: 34px; }
+  0%, 6.9%, 21.5%, 44.4%, 59%, 100% { width: 87px; height: 26px; border-radius: 13px; }
+  8.5%, 19.9%, 46%, 57.4% { width: 104px; height: 104px; border-radius: 34px; }
 }
-@keyframes faceid { 0%, 10%, 25%, 50%, 65%, 100% { opacity: 0; } 11%, 24%, 51%, 64% { opacity: 1; } }
-@keyframes fid-face { 0%, 16%, 26.5%, 56%, 66.5%, 100% { opacity: 1; } 17%, 25.5%, 57%, 65.5% { opacity: 0; } }
+@keyframes faceid { 0%, 8.1%, 20.3%, 45.6%, 57.8%, 100% { opacity: 0; } 8.9%, 19.5%, 46.4%, 57% { opacity: 1; } }
+@keyframes fid-face { 0%, 13%, 21.5%, 50.5%, 59%, 100% { opacity: 1; } 13.8%, 20.7%, 51.3%, 58.2% { opacity: 0; } }
 @keyframes fid-frame {
-  0%, 16%, 26.5%, 56%, 66.5%, 100% { transform: none; opacity: 1; }
-  18%, 25.5%, 58%, 65.5% { transform: rotate(90deg) scale(.7); opacity: 0; }
+  0%, 13%, 21.5%, 50.5%, 59%, 100% { transform: none; opacity: 1; }
+  14.6%, 20.7%, 52.1%, 58.2% { transform: rotate(90deg) scale(.7); opacity: 0; }
 }
-@keyframes fid-ring { 0%, 16%, 26.5%, 56%, 66.5%, 100% { stroke-dashoffset: 101; } 18%, 25.5%, 58%, 65.5% { stroke-dashoffset: 0; } }
-@keyframes fid-check { 0%, 17%, 26.5%, 57%, 66.5%, 100% { stroke-dashoffset: 101; } 19%, 25.5%, 59%, 65.5% { stroke-dashoffset: 0; } }
-@keyframes to-linux { 0%, 25% { stroke-dashoffset: 30; } 34%, 100% { stroke-dashoffset: -108; } }
-@keyframes linux-before { 0%, 34% { opacity: 1; } 36%, 90% { opacity: 0; } 94%, 100% { opacity: 1; } }
-@keyframes linux-after { 0%, 34% { opacity: 0; } 36%, 90% { opacity: 1; } 94%, 100% { opacity: 0; } }
-@keyframes term-out { 0%, 34% { opacity: 0; } 34.5%, 90% { opacity: 1; } 92%, 100% { opacity: 0; } }
-@keyframes tap-unlock { 0%, 47% { opacity: 0; transform: scale(.3); } 48% { opacity: .7; } 51%, 100% { opacity: 0; transform: scale(1.3); } }
-@keyframes press-unlock { 0%, 47.5% { transform: none; } 48.5% { transform: scale(.97); } 50.5%, 100% { transform: none; } }
-@keyframes to-mac { 0%, 65% { stroke-dashoffset: 30; } 74%, 100% { stroke-dashoffset: -108; } }
-@keyframes mac-before { 0%, 74% { opacity: 1; } 78%, 90% { opacity: 0; } 94%, 100% { opacity: 1; } }
-@keyframes mac-after { 0%, 74% { opacity: 0; } 76%, 90% { opacity: 1; } 94%, 100% { opacity: 0; } }
-@keyframes desktop { 0%, 74% { transform: scale(1.06); } 78%, 94% { transform: none; } 95%, 100% { transform: scale(1.06); } }
+@keyframes fid-ring { 0%, 13%, 21.5%, 50.5%, 59%, 100% { stroke-dashoffset: 101; } 14.6%, 20.7%, 52.1%, 58.2% { stroke-dashoffset: 0; } }
+@keyframes fid-check { 0%, 13.8%, 21.5%, 51.3%, 59%, 100% { stroke-dashoffset: 101; } 15.4%, 20.7%, 52.9%, 58.2% { stroke-dashoffset: 0; } }
+@keyframes to-linux { 0%, 20.3% { stroke-dashoffset: 30; } 27.6%, 100% { stroke-dashoffset: -108; } }
+@keyframes linux-before { 0%, 27.6% { opacity: 1; } 29.3%, 60% { opacity: 0; } 60.1%, 100% { opacity: 1; } }
+@keyframes linux-after { 0%, 27.6% { opacity: 0; } 29.3%, 60% { opacity: 1; } 60.1%, 100% { opacity: 0; } }
+/* The approved request leaves the app, and the next one comes in. 150px is a bit more than its height. */
+@keyframes request {
+  0%, 35.5%, 96.3%, 100% { max-height: 150px; padding-block: 14px; margin-bottom: 0; opacity: 1; }
+  38.1%, 93.1% { max-height: 0; padding-block: 0; margin-bottom: -12px; opacity: 0; }
+}
+/* The terminal is cleared, sudo is typed again and asks for the iPhone. */
+@keyframes term-cmd { 0%, 82.5% { opacity: 1; } 82.6%, 84.3% { opacity: 0; } 84.4%, 100% { opacity: 1; } }
+@keyframes typed { 0%, 82.6% { width: 16ch; } 82.7%, 85% { width: 0; animation-timing-function: steps(16, end); } 90%, 100% { width: 16ch; } }
+@keyframes term-dim { 0%, 82.5% { opacity: 1; } 82.6%, 91.8% { opacity: 0; } 91.9%, 100% { opacity: 1; } }
+@keyframes term-out-1 { 0%, 27.6% { opacity: 0; } 28%, 82.5% { opacity: 1; } 82.6%, 100% { opacity: 0; } }
+@keyframes term-out-2 { 0%, 30.1% { opacity: 0; } 30.5%, 82.5% { opacity: 1; } 82.6%, 100% { opacity: 0; } }
+@keyframes term-out-3 { 0%, 32.6% { opacity: 0; } 33%, 82.5% { opacity: 1; } 82.6%, 100% { opacity: 0; } }
+@keyframes tap-unlock { 0%, 43.2% { opacity: 0; transform: scale(.3); } 44% { opacity: .7; } 46.4%, 100% { opacity: 0; transform: scale(1.3); } }
+@keyframes press-unlock { 0%, 43.6% { transform: none; } 44.4% { transform: scale(.97); } 46%, 100% { transform: none; } }
+@keyframes to-mac { 0%, 57.8% { stroke-dashoffset: 30; } 65.1%, 100% { stroke-dashoffset: -108; } }
+/* The Mac unlocks, and later locks itself again. */
+@keyframes mac-before { 0%, 65.1% { opacity: 1; } 68.4%, 78.8% { opacity: 0; } 81.3%, 100% { opacity: 1; } }
+@keyframes mac-after { 0%, 65.1% { opacity: 0; } 66.8%, 78.8% { opacity: 1; } 80%, 100% { opacity: 0; } }
+@keyframes desktop { 0%, 65.1% { transform: scale(1.06); } 68.4%, 78.8% { transform: none; } 81.3%, 100% { transform: scale(1.06); } }
 
 /* Sections */
 section { padding: 96px 0; }
