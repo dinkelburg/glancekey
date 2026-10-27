@@ -16,11 +16,13 @@ struct ContentView: View {
                         }
                         .padding()
                     }
+                    // Its own heading says what the app does; a title would only repeat the app's name.
+                    .toolbar(.hidden, for: .navigationBar)
                 } else {
                     machineList
+                        .navigationTitle("Computers")
                 }
             }
-            .navigationTitle(Brand.name)
             .sheet(isPresented: $showingAddComputer) {
                 NavigationStack {
                     ScrollView { PairingView().padding() }
@@ -88,7 +90,10 @@ struct ContentView: View {
             }
             Section {
                 Toggle("Unlock when \(Brand.name) opens", isOn: $model.autoUnlockOnOpen)
-                Button("Add another computer") { showingAddComputer = true }
+                Button("Add another computer") {
+                    model.pairingResult = nil
+                    showingAddComputer = true
+                }
             } footer: {
                 Text("Opening \(Brand.name) unlocks the one locked computer; with more, tap the one you want. Requests like sudo always wait for you to tap Approve. Tip: add “Unlock Computer” to the Action button, Control Center or your Home Screen in Shortcuts.")
             }

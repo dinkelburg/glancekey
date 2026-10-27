@@ -552,6 +552,8 @@ final class PhoneModel: ObservableObject {
         case .background:
             cameFromBackground = true
             autoUnlockTask?.cancel()
+            // "Paired with …" is news for this visit only.
+            pairingResult = nil
         case .active:
             // Face ID's own sheet makes the app inactive and active again; only react to real launches.
             guard cameFromBackground else { return }
