@@ -112,7 +112,7 @@ sudo glancekey-agent disable-sudo   # back to just your password</code></pre>
     <p>In the iPhone app, turn on <strong>Notify me</strong>. When a computer waits for you, your iPhone gets a notification that names the computer; tap it to open GlanceKey. What's waiting travels over the relay when the app asks, never in the notification.</p>
 
     <h2 id="relay">Your own relay</h2>
-    <p>The relay that connects your iPhone to your computers is one small Cloudflare Worker, in the <code>relay</code> folder of GlanceKey's code (which goes public on GitHub at launch). Deploy it to your own Cloudflare account with <code>npx wrangler deploy</code>, then point your computers at it:</p>
+    <p>The relay that connects your iPhone to your computers is one small Cloudflare Worker, in the <code>relay</code> folder of <a href="https://github.com/dinkelburg/glancekey">GlanceKey's code</a>. In <code>relay/wrangler.jsonc</code>, remove <code>account_id</code> and replace the two <code>routes</code> with your own domain (or remove them for a workers.dev address). Then run <code>npm install</code> and <code>npx wrangler deploy</code> in that folder, and point your computers at it:</p>
     <pre><code># Mac: then quit and reopen GlanceKey
 defaults write nl.dinkelworks.glancekey.mac relayURL https://relay.example.com
 
@@ -151,6 +151,7 @@ rm -r ~/.config/glancekey</code></pre>
           <a href="/download">Download</a>
           <a href="/docs">Docs</a>
           <a href="/privacy">Privacy</a>
+          <a href="https://github.com/dinkelburg/glancekey">GitHub</a>
           <a href="mailto:ruben@dinkelworks.nl">Contact</a>
         </div>
       </div>

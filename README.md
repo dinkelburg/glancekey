@@ -69,6 +69,13 @@ Logs: `journalctl --user -u glancekey-agent -f`
 ### Pairing
 On the Mac click **Pair iPhone…**; on Linux run `glancekey-agent pair`. Then scan the QR code with the iPhone Camera app.
 
+### Your own relay
+`relay/wrangler.jsonc` deploys the public relay. For your own Cloudflare account, remove `account_id` there and replace the two `routes` with your own domain (or remove them for a workers.dev address). Then `cd relay && npm install && npx wrangler deploy`, and point your computers at it:
+- Mac: `defaults write nl.dinkelworks.glancekey.mac relayURL https://relay.example.com`, then quit and reopen the app.
+- Linux: set `"relay"` in `~/.config/glancekey/agent.json`, then `systemctl --user restart glancekey-agent`.
+
+Pair again afterwards; the QR code carries the relay's address, so the iPhone follows. Notifications need your own APNs key and iPhone app build (see [Notifications](#notifications)).
+
 ## Approve sudo with your iPhone
 
 Optional. `sudo` (and, on Linux, polkit's admin dialogs) first waits for your iPhone:
@@ -150,3 +157,17 @@ build/mac-sudo/pam-check --direct build/mac-sudo/pam_glancekey.so.2 /tmp/glancek
 ```
 
 `project.yml` is the source of truth for the Xcode project (`xcodegen generate`). The app's name is set in a few places listed in `Core/Sources/AppCore/Brand.swift`; `scripts/test.sh` checks they agree. The Mac app's relay can be overridden with `defaults write nl.dinkelworks.glancekey.mac relayURL http://localhost:8787`.
+
+## Security
+
+Found a security problem? Report it privately, not in a public issue: see [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+Bug reports and ideas are welcome as GitHub issues. Pull requests aren't accepted for now: the App Store version may only contain code Ruben Dinkelman owns, so outside code would first need a contributor agreement.
+
+## License
+
+GlanceKey is free software under the [GNU Affero General Public License v3.0](LICENSE). You may use, change and share it. If you share a changed version, or run a changed relay for other people, you have to publish your changes under the same license.
+
+The license covers the code, not the GlanceKey name, logo or app icon. If you publish your own version, give it its own name and icon; the name is set in the few files `Core/Sources/AppCore/Brand.swift` lists.
