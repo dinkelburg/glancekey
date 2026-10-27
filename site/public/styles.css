@@ -20,6 +20,7 @@
   --window-line: #d5dce8;
   --metal: #c3cad6;
   --metal-dark: #a3acbb;
+  --metal-hi: #e9edf3;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -43,6 +44,7 @@
     --window-line: #33405a;
     --metal: #3a4357;
     --metal-dark: #2a3142;
+    --metal-hi: #59637a;
   }
 }
 
@@ -107,7 +109,7 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
 
 /* Hero picture: the phone, wired to a Mac and a Linux machine. Everything has a fixed
    size so the wires (SVG, in stage pixels) meet the phone's cards and the computers. */
-.stage { position: relative; z-index: 0; justify-self: center; width: 610px; height: 610px; }
+.stage { position: relative; z-index: 0; justify-self: center; width: 610px; height: 626px; }
 .stage::before {
   content: "";
   position: absolute;
@@ -130,31 +132,88 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
 .linux { top: 296px; }
 .computer-name { margin: 10px 0 0; text-align: center; font-size: .85rem; color: var(--muted); }
 
-/* The phone */
+/* The phone: an iPhone 16 Pro at 69% of its size in points. A metal frame with the
+   Action button and volume buttons on the left, the side button and Camera Control on
+   the right, a thin black border round the screen, the status bar and the Dynamic Island. */
 .phone {
   position: absolute;
   top: 0;
   left: 0;
   width: 300px;
-  height: 610px;
-  padding: 11px;
-  border-radius: 52px;
-  background: #0a0e18;
-  box-shadow: inset 0 0 0 2px #2a3550, 0 50px 90px -30px rgb(10 60 160 / 40%);
+  height: 626px;
+  padding: 6px;
+  border: 4px solid transparent;
+  border-radius: 55px;
+  background:
+    linear-gradient(#020306, #020306) padding-box,
+    linear-gradient(150deg, var(--metal-hi), var(--metal-dark) 22%, var(--metal) 50%, var(--metal-dark) 78%, var(--metal-hi)) border-box;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 7%), 0 50px 90px -30px rgb(10 60 160 / 40%);
 }
-.island { position: absolute; top: 23px; left: 50%; width: 92px; height: 27px; transform: translateX(-50%); border-radius: 20px; background: #000; }
+.phone::before, .phone::after { content: ""; position: absolute; width: 3px; }
+.phone::before {
+  top: 105px;
+  left: -6.5px;
+  height: 171px;
+  border-radius: 2px 0 0 2px;
+  background: linear-gradient(var(--metal-dark) 0 28px, transparent 0 62px, var(--metal-dark) 0 108px, transparent 0 125px, var(--metal-dark) 0);
+}
+.phone::after {
+  top: 167px;
+  right: -6.5px;
+  height: 259px;
+  background:
+    linear-gradient(var(--metal-dark), var(--metal-dark)) 0 0 / 100% 84px no-repeat,
+    linear-gradient(var(--metal-dark), var(--metal-dark)) 0 203px / 1.5px 56px no-repeat;
+}
 .screen {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
   height: 100%;
-  padding: 60px 15px 18px;
-  border-radius: 42px;
+  padding: 61px 16px 18px;
+  border-radius: 45px;
   background: var(--screen-bg);
   color: var(--screen-text);
   font-size: 14px;
   line-height: 1.35;
 }
+/* The home indicator */
+.screen::after { content: ""; position: absolute; bottom: 7px; left: 50%; width: 94px; height: 4px; margin-left: -47px; border-radius: 2px; background: currentColor; opacity: .85; }
+/* Time on the left of the island, signal, Wi-Fi and battery on the right */
+.status-bar {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: 1fr 87px 1fr;
+  align-items: center;
+  justify-items: center;
+  height: 26px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.status-bar svg { grid-column: 3; width: 50px; height: 9px; }
+.island {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 87px;
+  height: 26px;
+  overflow: hidden;
+  transform: translateX(-50%);
+  border-radius: 13px;
+  background: #000;
+  color: #fff;
+}
+.faceid { width: 58px; height: 58px; opacity: 0; }
+.fid-frame { transform-box: fill-box; transform-origin: center; }
+.fid-ring, .fid-check { stroke-dasharray: 100 200; stroke-dashoffset: 101; }
 .app-title { margin: 0 4px 2px; font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
 .machine { padding: 14px; border-radius: 18px; background: var(--screen-card); box-shadow: 0 1px 2px rgb(0 0 0 / 6%); }
 .machine-head { display: flex; align-items: center; gap: 10px; }
@@ -266,24 +325,31 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
 
 /* Small screens: the computers sit under the phone, at two thirds of their size. */
 @media (max-width: 699px) {
-  .stage { width: 340px; height: 830px; }
+  .stage { width: 340px; height: 846px; }
   .stage::before { left: -100px; }
   .phone { left: 20px; }
   .wires-wide { display: none; }
   .wires-narrow { display: block; }
-  .mac, .linux { top: 676px; transform: scale(.66); transform-origin: 0 0; }
+  .mac, .linux { top: 692px; transform: scale(.66); transform-origin: 0 0; }
   .mac { left: 4px; }
   .linux { left: 178px; }
   .computer-name { font-size: 1.2rem; } /* scaled down with the computer */
 }
 @media (max-width: 379px) { .stage { zoom: .88; } }
 
-/* One 10 s loop: tap Approve, the approval travels to the workstation and sudo goes on;
-   then tap Unlock, it travels to the Mac and the Mac unlocks; hold, then start over. */
+/* One 14 s loop, the same twice: tap Approve, the Dynamic Island grows and shows Face ID
+   (the face looks around, then turns into a tick), the approval travels to the workstation
+   and sudo goes on; 40% of the loop later the same with Unlock and the Mac; hold, then start over. */
 @media (prefers-reduced-motion: no-preference) {
-  .stage { --loop: 10s; }
+  .stage { --loop: 14s; }
   .approve .tap { animation: tap-approve var(--loop) infinite; }
   .approve { animation: press-approve var(--loop) infinite; }
+  .island { animation: island var(--loop) cubic-bezier(.3, 1.3, .5, 1) infinite; }
+  .faceid { animation: faceid var(--loop) infinite; }
+  .fid-frame { animation: fid-frame var(--loop) infinite; }
+  .fid-face { animation: fid-face var(--loop) ease-in-out infinite; }
+  .fid-ring { animation: fid-ring var(--loop) infinite; }
+  .fid-check { animation: fid-check var(--loop) infinite; }
   .to-linux { animation: to-linux var(--loop) ease-in-out infinite; }
   .linux-before { animation: linux-before var(--loop) infinite; }
   .linux-after { animation: linux-after var(--loop) infinite; }
@@ -297,18 +363,44 @@ h1 { font-size: clamp(2.5rem, 5.2vw, 3.5rem); line-height: 1.04; letter-spacing:
   .mac-after { animation: mac-after var(--loop) infinite; }
   .desktop { animation: desktop var(--loop) infinite; }
 }
-@keyframes tap-approve { 0%, 8% { opacity: 0; transform: scale(.3); } 9% { opacity: .7; } 13%, 100% { opacity: 0; transform: scale(1.3); } }
-@keyframes press-approve { 0%, 9% { transform: none; } 10.5% { transform: scale(.94); } 13%, 100% { transform: none; } }
-@keyframes to-linux { 0%, 13% { stroke-dashoffset: 30; } 24%, 100% { stroke-dashoffset: -108; } }
-@keyframes linux-before { 0%, 24% { opacity: 1; } 27%, 88% { opacity: 0; } 92%, 100% { opacity: 1; } }
-@keyframes linux-after { 0%, 24% { opacity: 0; } 27%, 88% { opacity: 1; } 92%, 100% { opacity: 0; } }
-@keyframes term-out { 0%, 24% { opacity: 0; } 24.5%, 88% { opacity: 1; } 90%, 100% { opacity: 0; } }
-@keyframes tap-unlock { 0%, 40% { opacity: 0; transform: scale(.3); } 41% { opacity: .7; } 45%, 100% { opacity: 0; transform: scale(1.3); } }
-@keyframes press-unlock { 0%, 41% { transform: none; } 42.5% { transform: scale(.97); } 45%, 100% { transform: none; } }
-@keyframes to-mac { 0%, 45% { stroke-dashoffset: 30; } 56%, 100% { stroke-dashoffset: -108; } }
-@keyframes mac-before { 0%, 56% { opacity: 1; } 61%, 88% { opacity: 0; } 92%, 100% { opacity: 1; } }
-@keyframes mac-after { 0%, 56% { opacity: 0; } 59%, 88% { opacity: 1; } 92%, 100% { opacity: 0; } }
-@keyframes desktop { 0%, 56% { transform: scale(1.06); } 61%, 92% { transform: none; } 93%, 100% { transform: scale(1.06); } }
+@keyframes tap-approve { 0%, 7% { opacity: 0; transform: scale(.3); } 8% { opacity: .7; } 11%, 100% { opacity: 0; transform: scale(1.3); } }
+@keyframes press-approve { 0%, 7.5% { transform: none; } 8.5% { transform: scale(.94); } 10.5%, 100% { transform: none; } }
+@keyframes island {
+  0%, 8.5%, 27.5%, 48.5%, 67.5%, 100% { width: 87px; height: 26px; border-radius: 13px; }
+  11%, 25.5%, 51%, 65.5% { width: 104px; height: 104px; border-radius: 34px; }
+}
+@keyframes faceid { 0%, 10.5%, 26%, 50.5%, 66%, 100% { opacity: 0; } 11.5%, 25%, 51.5%, 65% { opacity: 1; } }
+@keyframes fid-face {
+  0%, 11.5% { transform: none; opacity: 1; }
+  13.25% { transform: translateX(-2.5px); }
+  15% { transform: translateX(2.5px); }
+  16.75% { transform: translateX(-1.5px); }
+  18.5% { transform: none; opacity: 1; }
+  20%, 26% { transform: none; opacity: 0; }
+  27%, 51.5% { transform: none; opacity: 1; }
+  53.25% { transform: translateX(-2.5px); }
+  55% { transform: translateX(2.5px); }
+  56.75% { transform: translateX(-1.5px); }
+  58.5% { transform: none; opacity: 1; }
+  60%, 66% { transform: none; opacity: 0; }
+  67%, 100% { transform: none; opacity: 1; }
+}
+@keyframes fid-frame {
+  0%, 18.5%, 27%, 58.5%, 67%, 100% { transform: none; opacity: 1; }
+  20.5%, 26%, 60.5%, 66% { transform: rotate(90deg) scale(.7); opacity: 0; }
+}
+@keyframes fid-ring { 0%, 18.5%, 27%, 58.5%, 67%, 100% { stroke-dashoffset: 101; } 21%, 26%, 61%, 66% { stroke-dashoffset: 0; } }
+@keyframes fid-check { 0%, 20%, 27%, 60%, 67%, 100% { stroke-dashoffset: 101; } 22%, 26%, 62%, 66% { stroke-dashoffset: 0; } }
+@keyframes to-linux { 0%, 27% { stroke-dashoffset: 30; } 36%, 100% { stroke-dashoffset: -108; } }
+@keyframes linux-before { 0%, 36% { opacity: 1; } 38%, 90% { opacity: 0; } 94%, 100% { opacity: 1; } }
+@keyframes linux-after { 0%, 36% { opacity: 0; } 38%, 90% { opacity: 1; } 94%, 100% { opacity: 0; } }
+@keyframes term-out { 0%, 36% { opacity: 0; } 36.5%, 90% { opacity: 1; } 92%, 100% { opacity: 0; } }
+@keyframes tap-unlock { 0%, 47% { opacity: 0; transform: scale(.3); } 48% { opacity: .7; } 51%, 100% { opacity: 0; transform: scale(1.3); } }
+@keyframes press-unlock { 0%, 47.5% { transform: none; } 48.5% { transform: scale(.97); } 50.5%, 100% { transform: none; } }
+@keyframes to-mac { 0%, 67% { stroke-dashoffset: 30; } 76%, 100% { stroke-dashoffset: -108; } }
+@keyframes mac-before { 0%, 76% { opacity: 1; } 80%, 90% { opacity: 0; } 94%, 100% { opacity: 1; } }
+@keyframes mac-after { 0%, 76% { opacity: 0; } 78%, 90% { opacity: 1; } 94%, 100% { opacity: 0; } }
+@keyframes desktop { 0%, 76% { transform: scale(1.06); } 80%, 94% { transform: none; } 95%, 100% { transform: scale(1.06); } }
 
 /* Sections */
 section { padding: 96px 0; }
