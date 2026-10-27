@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GlanceKey: unlock and approve everything on your Mac and Linux with Face ID</title>
-  <meta name="description" content="GlanceKey makes Face ID on your iPhone the one way you prove it’s you on your Mac and Linux machines: unlock the screen, approve sudo and fill in password prompts, from anywhere. Open source, self-hostable, no data collected.">
+  <title>GlanceKey: unlock your Mac and Linux machines with Face ID</title>
+  <meta name="description" content="Use Face ID on your iPhone to unlock your Mac and Linux machines, approve sudo and fill in password prompts, from anywhere. Open source, self-hostable, no data collected.">
   <link rel="canonical" href="https://www.glancekey.com/">
   <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
@@ -34,7 +34,7 @@
       <div class="wrap hero-grid">
         <div class="hero-copy">
           <h1>Unlock and approve with a glance.</h1>
-          <p class="lead">GlanceKey makes Face ID on your iPhone the one way you prove it’s you, on your Mac and on your Linux machines. Unlock the screen, approve sudo, fill in a password prompt: look at your phone and it’s done, wherever you are.</p>
+          <p class="lead">Use Face ID on your iPhone to unlock your Mac and Linux machines, approve sudo and fill in password prompts. Look at your phone and it’s done, even when you’re not at your computer.</p>
           <div class="cta">
             <span class="btn btn-soon"><small>Coming soon</small>to the App Store</span>
             <a class="btn btn-ghost" href="#how">How it works</a>
@@ -66,16 +66,14 @@
                 <span>9:41</span>
                 <svg viewBox="0 0 67 12" fill="currentColor"><rect y="7.5" width="3" height="4" rx="1"/><rect x="4.5" y="5.5" width="3" height="6" rx="1"/><rect x="9" y="3.5" width="3" height="8" rx="1"/><rect x="13.5" y="1.5" width="3" height="10" rx="1"/><path d="M22.1 5.1a9 9 0 0 1 12.8 0M24.6 7.6a5.5 5.5 0 0 1 7.8 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="28.5" cy="10.2" r="1.7"/><rect x="40.5" y="1" width="23" height="11" rx="3.2" fill="none" stroke="currentColor" opacity=".4"/><rect x="42.5" y="3" width="16" height="7" rx="1.6"/><rect x="64.6" y="4.5" width="1.6" height="4" rx=".8" opacity=".4"/></svg>
               </div>
-              <div class="island"></div>
-              <!-- Face ID in the middle of the screen, as iPhones show it in apps: the face, then a tick. -->
-              <div class="faceid">
-                <svg viewBox="0 0 60 60" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+              <!-- The Dynamic Island, where iPhones that have one show Face ID: the face, then a tick. -->
+              <div class="island">
+                <svg class="faceid" viewBox="0 0 60 60" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
                   <path class="fid-frame" d="M4 18v-7a7 7 0 0 1 7-7h7M42 4h7a7 7 0 0 1 7 7v7M56 42v7a7 7 0 0 1-7 7h-7M18 56h-7a7 7 0 0 1-7-7v-7"/>
                   <path class="fid-face" d="M21 21v5M39 21v5M30 21v12a2.5 2.5 0 0 1-2.5 2.5H27M22 42.5q8 6 16 0"/>
                   <path class="fid-ring" pathLength="100" d="M30 4a26 26 0 1 1 0 52a26 26 0 1 1 0-52"/>
                   <path class="fid-check" pathLength="100" d="m19 31 7.5 7.5L41 23"/>
                 </svg>
-                Face ID
               </div>
               <p class="app-title">GlanceKey</p>
               <div class="machine">
@@ -146,21 +144,21 @@
     <section id="why" class="alt">
       <div class="wrap">
         <div class="section-head">
-          <h2>Your face is the key to all your computers</h2>
-          <p>Every machine has its own way in: a password here, a fingerprint there, another prompt on the next one. GlanceKey replaces them with one that’s always in your pocket.</p>
+          <h2>Face ID for your computers</h2>
+          <p>Each computer asks for your password in its own way. With GlanceKey you answer on your iPhone instead.</p>
         </div>
         <div class="columns reasons">
           <div>
-            <h3>One way to prove it’s you</h3>
-            <p>The same Face ID on every Mac and Linux machine you use, for unlocking and for approving. You stop typing your password, and you always see what you’re saying yes to.</p>
+            <h3>The same on each computer</h3>
+            <p>The same Face ID on your Mac and your Linux machines, for unlocking and for approving. You type your password less often, and you see what you’re approving.</p>
           </div>
           <div>
-            <h3>Made for working with agents</h3>
-            <p>AI agents now run on several of your machines at once, and they keep stopping at sudo and password prompts. Each prompt shows up on your iPhone with exactly what’s asking, and you approve it with a glance, without walking over to that machine.</p>
+            <h3>Useful with AI agents</h3>
+            <p>AI agents often run on several machines and stop at sudo and password prompts. Each prompt shows up on your iPhone with what’s asking, and you approve it there, without walking over to that machine.</p>
           </div>
           <div>
-            <h3>Simply faster</h3>
-            <p>Unlocking your Mac by looking at your phone beats typing a password, and it doesn’t depend on a fingerprint reader recognizing dry or worn fingers.</p>
+            <h3>Faster</h3>
+            <p>Looking at your phone is quicker than typing a password. It also works when a fingerprint reader doesn’t recognize dry or worn fingers.</p>
           </div>
         </div>
       </div>
@@ -170,12 +168,12 @@
       <div class="wrap">
         <div class="section-head">
           <h2>What it does</h2>
-          <p>Your computer asks, your iPhone answers. Typing your password becomes the fallback.</p>
+          <p>Your computer asks, your iPhone answers. You can still type your password instead.</p>
         </div>
         <ul class="list">
           <li>
             <h3>Unlock from anywhere</h3>
-            <p>Wi‑Fi, 5G or the other side of the world. Your computer keeps a connection out to a relay, so your iPhone reaches it from any network. No Bluetooth, no shared Wi‑Fi.</p>
+            <p>Over Wi‑Fi or 5G, at home or away. Your computer keeps a connection out to a relay, so your iPhone reaches it from any network. No Bluetooth, no shared Wi‑Fi.</p>
           </li>
           <li>
             <h3>Approve sudo</h3>
@@ -186,8 +184,8 @@
             <p>When 1Password, Safari passwords, System Settings or an installer asks for your Mac password, approve it on your iPhone and GlanceKey fills it in.</p>
           </li>
           <li>
-            <h3>All your computers</h3>
-            <p>Pair as many Macs and Linux machines as you like. Opening the app unlocks the one that’s locked, and Unlock all handles several with one look.</p>
+            <h3>Several computers</h3>
+            <p>Pair as many Macs and Linux machines as you like. Opening the app unlocks the one that’s locked. If several are, the Unlock all button does them with one Face ID.</p>
           </li>
           <li>
             <h3>Siri, Shortcuts and the Action button</h3>
@@ -229,12 +227,12 @@
       <div class="wrap">
         <div class="section-head">
           <h2>Check it yourself</h2>
-          <p>GlanceKey handles your login password and approves sudo for you. So everything about it is out in the open.</p>
+          <p>GlanceKey handles your login password and approves sudo for you. So you can read its code and run the relay yourself.</p>
         </div>
         <div class="columns">
           <div id="open-source">
             <h3>Open source</h3>
-            <p>The iPhone app, the Mac app, the Linux program and the relay are all open source, so you can see exactly what runs on your computer. The code goes public on GitHub at launch.</p>
+            <p>The iPhone app, the Mac app, the Linux program and the relay are open source, so you can see what runs on your computer. The code goes public on GitHub at launch.</p>
           </div>
           <div id="self-hosting">
             <h3>Self-hostable</h3>
@@ -252,7 +250,7 @@
       <div class="wrap">
         <div class="section-head">
           <h2>How it keeps you safe</h2>
-          <p>Your iPhone signs every action and your computer checks it. Whatever sits in between only carries messages.</p>
+          <p>Your iPhone signs each action and your computer checks it. The relay in between only carries messages.</p>
         </div>
         <div class="flow">
           <div class="node"><strong>Your iPhone</strong><span>Asks, and signs with your face</span></div>
@@ -267,7 +265,7 @@
             <p>Pairing creates a key inside your iPhone that only works after Face ID recognizes you. Your passcode can’t use it, and adding a new face disables it.</p>
           </li>
           <li>
-            <h3>Every request works once</h3>
+            <h3>Each request works once</h3>
             <p>Your computer makes a fresh request for each action, and it expires after a minute. Your iPhone’s answer only fits that one request, so it can’t be copied or used again.</p>
           </li>
           <li>
@@ -276,7 +274,7 @@
           </li>
           <li>
             <h3>sudo checks your iPhone itself</h3>
-            <p>A part of GlanceKey that only the system can change checks your iPhone’s answer, so no other program running as you can approve in your place. Your iPhone signs exactly the command it showed you.</p>
+            <p>A part of GlanceKey that only the system can change checks your iPhone’s answer, so no other program running as you can approve in your place. Your iPhone signs the same command it showed you.</p>
           </li>
           <li>
             <h3>Nothing opens up on your computer</h3>
@@ -284,7 +282,7 @@
           </li>
           <li>
             <h3>Your password still works</h3>
-            <p>GlanceKey adds a way in; it never replaces your password. If your phone is out of reach, you type it as always.</p>
+            <p>GlanceKey adds a way in; it never replaces your password. If your phone is out of reach, you type it as usual.</p>
           </li>
         </ul>
       </div>
@@ -306,7 +304,7 @@
           </details>
           <details>
             <summary>What if my iPhone is dead or stolen?</summary>
-            <p>Type your password, as always. Someone holding your iPhone can’t use GlanceKey either: its key only works after Face ID recognizes your face.</p>
+            <p>Type your password as usual. Someone holding your iPhone can’t use GlanceKey either: its key only works after Face ID recognizes your face.</p>
           </details>
           <details>
             <summary>What can the relay see?</summary>
