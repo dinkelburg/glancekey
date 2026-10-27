@@ -42,7 +42,8 @@
           <p class="hero-meta">Free and open source (AGPL-3.0). <a href="https://github.com/dinkelburg/glancekey">The code is on GitHub</a>.</p>
         </div>
 
-        <!-- Plays on a loop: approve sudo on the workstation, then unlock the Mac, each after Face ID. -->
+        <!-- Plays on a loop: approve sudo on the workstation, then unlock the Mac, each after Face ID. The phone shows the
+             app's screen: the request on top, then a row per computer. -->
         <div class="stage" aria-hidden="true">
           <svg class="wires wires-wide" viewBox="0 0 610 626">
             <path class="wire" d="M300 150C345 150 338 113 383 113"/>
@@ -76,27 +77,40 @@
                   <path class="fid-check" pathLength="100" d="m19 31 7.5 7.5L41 23"/>
                 </svg>
               </div>
-              <p class="app-title">GlanceKey</p>
-              <div class="machine">
-                <div class="machine-head">
-                  <span class="machine-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2 19h20"/></svg></span>
-                  <span><span class="machine-name">MacBook Pro</span><span class="machine-state">macOS</span></span>
-                  <span class="swap chips"><span class="chip mac-before">Locked</span><span class="chip chip-ok mac-after">Unlocked</span></span>
-                </div>
-                <span class="app-btn unlock">Unlock<span class="tap"></span></span>
+              <div class="app-bar">
+                <p class="app-title">Computers</p>
+                <span class="app-tools"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
               </div>
-              <div class="machine">
-                <div class="machine-head">
-                  <span class="machine-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></span>
-                  <span><span class="machine-name">workstation</span><span class="swap"><span class="machine-state linux-before">Waiting for approval</span><span class="machine-state linux-after">Approved</span></span></span>
+              <!-- A request waiting for you, as in the app: the command, then Approve or Deny. -->
+              <div class="request">
+                <div class="request-head">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>
+                  <span class="request-name">workstation</span>
+                  <span class="request-time">25 s</span>
                 </div>
                 <p class="cmd">sudo pacman -Syu</p>
+                <p class="request-detail">ruben on pts/1</p>
                 <div class="swap">
                   <div class="app-btn-row linux-before">
-                    <span class="app-btn secondary">Deny</span>
                     <span class="app-btn approve">Approve<span class="tap"></span></span>
+                    <span class="app-btn secondary">Deny</span>
                   </div>
                   <p class="done linux-after"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>Approved</p>
+                </div>
+              </div>
+              <!-- A row per computer: whether it's locked and the one button you'd want. -->
+              <div class="rows">
+                <div class="row">
+                  <span class="swap"><span class="dot dot-locked mac-before"></span><span class="dot dot-unlocked mac-after"></span></span>
+                  <span class="row-text"><span class="row-name">MacBook Pro</span><span class="swap"><span class="row-state mac-before">Locked</span><span class="row-state mac-after">Unlocked</span></span></span>
+                  <span class="swap row-action"><span class="pill unlock mac-before">Unlock<span class="tap"></span></span><span class="pill pill-quiet mac-after">Lock</span></span>
+                  <span class="chevron">›</span>
+                </div>
+                <div class="row">
+                  <span class="dot dot-unlocked"></span>
+                  <span class="row-text"><span class="row-name">workstation</span><span class="row-state">Unlocked</span></span>
+                  <span class="row-action"><span class="pill pill-quiet">Lock</span></span>
+                  <span class="chevron">›</span>
                 </div>
               </div>
             </div>

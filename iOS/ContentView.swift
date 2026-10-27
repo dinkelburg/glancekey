@@ -292,16 +292,9 @@ private struct MachineDetail: View {
                     }
                     LabeledContent("Kind", value: machine.kind)
                 }
-                if let wait = model.statuses[machine.machineId]?.approvalWait {
-                    Section {
-                        Picker("Wait for approval", selection: Binding(get: { wait }, set: { choice in
-                            Task { await model.setApprovalWait(choice, on: machine) }
-                        })) {
-                            ForEach(ApprovalWait.choices, id: \.self) { Text(ApprovalWait.name($0)).tag($0) }
-                        }
-                    } footer: {
-                        Text("How long sudo and password dialogs on \(machine.machineName) wait for your iPhone before they ask for the password. At the computer, press Enter to type it sooner. Changing it asks for \(Biometry.name).")
-                    }
+                // Unknown while the computer can't be reached.
+                if let status = model.statuses[machine.machineId], status.error == nil {
+                    approvalWaitSection(machine, wait: status.approvalWait)
                 }
                 Section {
                     Button {
@@ -330,6 +323,28 @@ private struct MachineDetail: View {
                     dismiss()
                     model.remove(machine)
                 }
+            }
+        }
+    }
+
+    /// How long its approvals wait, changeable here once the computer runs a version that says.
+    private func approvalWaitSection(_ machine: PairedMachine, wait: Int?) -> some View {
+        Section {
+            if let wait {
+                Picker("Wait for approval", selection: Binding(get: { wait }, set: { choice in
+                    Task { await model.setApprovalWait(choice, on: machine) }
+                })) {
+                    ForEach(ApprovalWait.choices, id: \.self) { Text(ApprovalWait.name($0)).tag($0) }
+                }
+            } else {
+                // An older version on the computer waits 30 seconds and can't be changed from here.
+                LabeledContent("Wait for approval", value: ApprovalWait.name(ApprovalWait.choices[0]))
+            }
+        } footer: {
+            if wait == nil {
+                Text("To change this from your iPhone, update \(Brand.name) on \(machine.machineName).")
+            } else {
+                Text("How long sudo and password dialogs on \(machine.machineName) wait for your iPhone before they ask for the password. At the computer, press Enter to type it sooner. Changing it asks for \(Biometry.name).")
             }
         }
     }
