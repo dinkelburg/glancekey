@@ -177,7 +177,7 @@ func (a *Agent) hello(body []byte) (any, error) {
 		a.cardChanged()
 	}
 	response := HelloResponse{MachineID: machineID, MachineName: machineName, Approvals: a.waitingApprovals(),
-		WantsPasswordKey: !hasPasswordKey && a.screen.NeedsPassword()}
+		WantsPasswordKey: !hasPasswordKey && a.screen.NeedsPassword(), ApprovalWait: a.approvalWait()}
 	if hasSealed {
 		nonce, sessionKey, err := a.auth.IssueNonceWithSession(req.DeviceID)
 		if err != nil {
@@ -242,6 +242,11 @@ func (a *Agent) command(body []byte) (any, error) {
 		response = CommandResponse{OK: true, Locked: locked, Message: message}
 	case actionLock:
 		response, err = a.lock()
+	case actionSetWait:
+		if err = a.setApprovalWait(req.Wait); err == nil {
+			log.Printf("%s set approvals to wait %s", device.Name, describeApprovalWait(req.Wait))
+			response = CommandResponse{OK: true, Message: "Approvals wait " + describeApprovalWait(req.Wait)}
+		}
 	case actionUnlock:
 		response, err = a.unlock(device, session, req)
 	default:

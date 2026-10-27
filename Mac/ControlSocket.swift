@@ -142,4 +142,6 @@ struct CheckerMessage: Codable {
     var signature: String?
     var accepted: Bool?
     var error: String?
+    /// With `waiting`: how long to wait for the iPhone, this Mac's approval wait (`ApprovalWait`).
+    var expiresIn: Int?
 }

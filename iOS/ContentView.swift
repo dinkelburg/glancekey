@@ -129,11 +129,13 @@ private struct ApprovalCard: View {
                 Image(systemName: waiting.machine.symbolName)
                 Text(waiting.machine.machineName).font(.subheadline.weight(.semibold))
                 Spacer()
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    let left = Int(waiting.expiresAt.timeIntervalSince(context.date).rounded(.up))
-                    Text(left > 0 ? "\(left) s" : "Expired")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                if ApprovalWait.showsCountdown(until: waiting.expiresAt) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let left = Int(waiting.expiresAt.timeIntervalSince(context.date).rounded(.up))
+                        Text(left > 0 ? "\(left) s" : "Expired")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             Text(waiting.approval.title)
@@ -289,6 +291,17 @@ private struct MachineDetail: View {
                             .multilineTextAlignment(.trailing)
                     }
                     LabeledContent("Kind", value: machine.kind)
+                }
+                if let wait = model.statuses[machine.machineId]?.approvalWait {
+                    Section {
+                        Picker("Wait for approval", selection: Binding(get: { wait }, set: { choice in
+                            Task { await model.setApprovalWait(choice, on: machine) }
+                        })) {
+                            ForEach(ApprovalWait.choices, id: \.self) { Text(ApprovalWait.name($0)).tag($0) }
+                        }
+                    } footer: {
+                        Text("How long sudo and password dialogs on \(machine.machineName) wait for your iPhone before they ask for the password. At the computer, press Enter to type it sooner. Changing it asks for \(Biometry.name).")
+                    }
                 }
                 Section {
                     Button {

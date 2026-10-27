@@ -140,3 +140,15 @@ func TestValidCardID(t *testing.T) {
 		t.Fatal("validCardID")
 	}
 }
+
+// The same bytes are pinned in the Swift tests (ProtocolTests.waitMessage).
+func TestWaitMessageMatchesSwift(t *testing.T) {
+	if string(waitMessage("m", "d", "n", 300)) != "faceunlock-wait/v1\nm\nd\nn\n300" {
+		t.Fatal("wait message")
+	}
+	var request CommandRequest
+	if json.Unmarshal([]byte(`{"action":"setWait","deviceId":"d","nonce":"n","signature":"s","wait":300}`), &request) != nil ||
+		request.Action != actionSetWait || request.Wait != 300 {
+		t.Fatalf("%+v", request)
+	}
+}

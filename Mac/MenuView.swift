@@ -277,6 +277,12 @@ private struct OptionsSection: View {
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            DetailRow(title: "Wait for iPhone", detail: "How long sudo and password dialogs wait before they ask for your password. In Terminal, press Enter to type it sooner.") {
+                Picker("Wait for iPhone", selection: $model.approvalWait) {
+                    ForEach(ApprovalWait.choices, id: \.self) { Text(ApprovalWait.name($0)).tag($0) }
+                }
+                .fixedSize()
+            }
         }
         .toggleStyle(.switch)
         .labelsHidden()

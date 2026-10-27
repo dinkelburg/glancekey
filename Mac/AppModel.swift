@@ -43,6 +43,7 @@ final class AppModel: ObservableObject {
         /// Override with `defaults write nl.dinkelworks.<Brand.id>.mac relayURL http://localhost:8787` for testing.
         static let relayURL = "relayURL"
         static let fillsPasswordDialogs = "fillsPasswordDialogs"
+        static let approvalWait = "approvalWait"
     }
 
     private static let agentSecretService = Brand.keychainService("agent-secret")
@@ -72,6 +73,11 @@ final class AppModel: ObservableObject {
     /// Ask the iPhone when a system password dialog appears, and fill in the password once it approves.
     @Published var fillsPasswordDialogs: Bool {
         didSet { UserDefaults.standard.set(fillsPasswordDialogs, forKey: Defaults.fillsPasswordDialogs) }
+    }
+    /// How long sudo and password dialogs wait for the iPhone (`ApprovalWait`). This Mac is the source of truth; the
+    /// iPhone can change it with a signed command. It never decides an approval: the checker verifies those itself.
+    @Published var approvalWait: Int {
+        didSet { UserDefaults.standard.set(approvalWait, forKey: Defaults.approvalWait) }
     }
 
     var needsAttention: Bool { !hasPassword || !hasEventAccess || devices.isEmpty || relayState != .connected }
@@ -105,6 +111,8 @@ final class AppModel: ObservableObject {
         devices = defaults.data(forKey: Defaults.devices).flatMap { try? JSONDecoder().decode([PairedDevice].self, from: $0) } ?? []
         keepAwakeOnPower = defaults.object(forKey: Defaults.keepAwake) as? Bool ?? true
         fillsPasswordDialogs = defaults.object(forKey: Defaults.fillsPasswordDialogs) as? Bool ?? true
+        approvalWait = (defaults.object(forKey: Defaults.approvalWait) as? Int).flatMap { ApprovalWait.choices.contains($0) ? $0 : nil }
+            ?? ApprovalWait.choices[0]
         authenticator = Authenticator(machineId: machineId)
     }
 
@@ -485,7 +493,7 @@ final class AppModel: ObservableObject {
         }
         let nonce = authenticator.issueNonce(for: request.deviceId)
         return respond(HelloResponse(machineId: machineId, machineName: machineName, nonce: nonce,
-                                     locked: ScreenController.isLocked, approvals: waitingApprovals))
+                                     locked: ScreenController.isLocked, approvals: waitingApprovals, approvalWait: approvalWait))
     }
 
     /// The requests the iPhone can still answer: sudo and the password dialog.
@@ -521,6 +529,12 @@ final class AppModel: ObservableObject {
             }
         case .unlock:
             response = try await unlock(by: device)
+        case .setWait:
+            guard let wait = request.wait, ApprovalWait.choices.contains(wait) else {
+                throw RequestError(status: 400, message: "Choose one of the offered waits.")
+            }
+            approvalWait = wait
+            response = CommandResponse(ok: true, locked: ScreenController.isLocked, message: "Approvals wait \(ApprovalWait.name(wait).lowercased())")
         case .approve, .deny:
             throw RequestError(status: 400, message: "Bad request.")
         }
@@ -607,9 +621,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func serveApproval(_ approval: Approval?, connection: ControlSocket.Connection, lines: AsyncStream<String>.Iterator) async {
-        guard let approval, !approval.id.isEmpty, !approval.nonce.isEmpty, !approval.title.isEmpty,
-              approval.title.count <= 300, approval.detail.count <= 300, (1...120).contains(approval.expiresIn),
+    private func serveApproval(_ request: Approval?, connection: ControlSocket.Connection, lines: AsyncStream<String>.Iterator) async {
+        guard var approval = request, !approval.id.isEmpty, !approval.nonce.isEmpty, !approval.title.isEmpty,
+              approval.title.count <= 300, approval.detail.count <= 300, (1...ApprovalWait.untilAnswered).contains(approval.expiresIn),
               !(approval.title + approval.detail).contains(where: \.isNewline)
         else {
             connection.send(CheckerMessage(error: "invalid approval request"))
@@ -620,9 +634,11 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // This Mac's wait, not the checker's own.
+        approval.expiresIn = approvalWait
         let pending = PendingApproval(approval)
         approvals[approval.id] = pending
-        connection.send(CheckerMessage(waiting: true))
+        connection.send(CheckerMessage(waiting: true, expiresIn: approval.expiresIn))
         note("Waiting for your iPhone: \(approval.title)")
         notifyPhones()
 
@@ -634,8 +650,9 @@ final class AppModel: ObservableObject {
             }
             pending.post.yield(.checker(nil))
         }
+        let wait = UInt64(approval.expiresIn)
         let timer = Task {
-            try? await Task.sleep(nanoseconds: UInt64(approval.expiresIn) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: wait * 1_000_000_000)
             pending.post.yield(.timeout)
         }
         defer {
@@ -724,8 +741,9 @@ final class AppModel: ObservableObject {
             note("A program asked the keychain for \(Brand.name)'s saved password. Deny it unless you started that.", isError: true)
             return
         }
-        let approval = Approval(id: randomToken(byteCount: 16), title: found.title, detail: found.detail, nonce: randomToken(), expiresIn: 120)
-        dialogRequest = DialogRequest(dialog: found, approval: approval, deadline: Date().addingTimeInterval(120))
+        let approval = Approval(id: randomToken(byteCount: 16), title: found.title, detail: found.detail, nonce: randomToken(),
+                                expiresIn: approvalWait)
+        dialogRequest = DialogRequest(dialog: found, approval: approval, deadline: Date().addingTimeInterval(TimeInterval(approvalWait)))
         note("Waiting for your iPhone: \(found.title)")
         notifyPhones()
     }

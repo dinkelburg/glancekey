@@ -41,6 +41,7 @@ Usage:
 Approve sudo and polkit prompts on your iPhone (they fall back to the password if you don't):
   sudo {agent} enable-sudo	Install the checker, trust the paired iPhones, add the PAM lines
   sudo {agent} disable-sudo	Undo that
+  {agent} set-wait 30s|1m|5m|15m|until-answered	How long they wait for your iPhone (press Enter to type your password sooner)
   {agent} pam [--timeout 30s]	The checker PAM runs as root (not for direct use)
 
 Environment:
@@ -84,6 +85,12 @@ func main() {
 		err = cmdSetPassword(len(os.Args) > 2 && os.Args[2] == "--stdin")
 	case "forget-password":
 		err = cmdForgetPassword()
+	case "set-wait":
+		if len(os.Args) != 3 {
+			err = errors.New("usage: " + agentCommand + " set-wait 30s|1m|5m|15m|until-answered")
+		} else {
+			err = cmdSetWait(os.Args[2])
+		}
 	case "install-service":
 		err = cmdInstallService()
 	case "enable-sudo":
@@ -306,6 +313,29 @@ func cmdForgetPassword() error {
 		}
 		defer lock.Close()
 		err = agent.forgetPassword()
+	}
+	return err
+}
+
+// cmdSetWait sets the approval wait through the running agent, or on the state file when it isn't running.
+func cmdSetWait(argument string) error {
+	response, err := callAgent(controlRequest{Command: "set-wait", Argument: argument})
+	if errors.Is(err, errAgentNotRunning) {
+		wait, parseErr := parseApprovalWait(argument)
+		if parseErr != nil {
+			return parseErr
+		}
+		agent, lock, loadErr := offlineAgent()
+		if loadErr != nil {
+			return loadErr
+		}
+		defer lock.Close()
+		if err = agent.setApprovalWait(wait); err == nil {
+			response.Message = waitSaved(wait)
+		}
+	}
+	if err == nil {
+		fmt.Println(response.Message)
 	}
 	return err
 }

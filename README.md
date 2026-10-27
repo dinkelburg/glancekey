@@ -83,11 +83,13 @@ Optional. `sudo` (and, on Linux, polkit's admin dialogs) first waits for your iP
 
 ```
 $ sudo pacman -Syu
-GlanceKey: approve on your iPhone, or wait 30 s to type your password.
+GlanceKey: approve on your iPhone, or press Enter to type your password (it waits 30 seconds).
 GlanceKey: approved on Ruben's iPhone.
 ```
 
-Open GlanceKey (or tap the notification): it shows `sudo pacman -Syu` and approves it with Face ID. **Deny**, no answer within 30 s, or no connection: the normal password prompt follows. SSH sessions get the password prompt straight away.
+Open GlanceKey (or tap the notification): it shows `sudo pacman -Syu` and approves it with Face ID. **Deny**, Enter in the terminal, no answer in time, or no connection: the normal password prompt follows. SSH sessions get the password prompt straight away.
+
+How long it waits is a setting of each computer: 30 seconds (the default), 1, 5 or 15 minutes, or until you answer. Set it on the computer's page in the iPhone app (after Face ID; the computer checks the iPhone's signature over the value), in the Mac menu (**Wait for iPhone**), or on Linux with `glancekey-agent set-wait 30s|1m|5m|15m|until-answered`. The Mac app or the agent saves it and hands it to the checker with each request; it only decides how long the checker waits, never whether it approves. Mac password dialogs wait as long.
 
 Set it up after pairing, and again after pairing another iPhone or updating GlanceKey:
 - **Linux:** `sudo glancekey-agent enable-sudo`. It lists the iPhones it will trust, marking new ones, and asks before it changes anything. It copies the agent to `/usr/local/libexec/glancekey/`, saves your paired iPhones in `/etc/glancekey/approvers.json` and adds one `pam_exec` line to `/etc/pam.d/sudo` and `/etc/pam.d/polkit-1`. polkit keeps its config in `/usr/lib/pam.d` on Arch and Debian, so it creates the `/etc/pam.d/polkit-1` override from that; run it again after polkit updates. Undo: `sudo glancekey-agent disable-sudo`.

@@ -154,6 +154,15 @@ func (a *Agent) control(request controlRequest) controlResponse {
 		}
 		log.Print("Saved a new password")
 		return controlResponse{Message: message}
+	case "set-wait":
+		wait, err := parseApprovalWait(request.Argument)
+		if err == nil {
+			err = a.setApprovalWait(wait)
+		}
+		if err != nil {
+			return controlResponse{Error: err.Error()}
+		}
+		return controlResponse{Message: waitSaved(wait)}
 	case "forget-password":
 		if err := a.forgetPassword(); err != nil {
 			return controlResponse{Error: err.Error()}

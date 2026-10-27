@@ -60,6 +60,12 @@ public struct RelayClient: Sendable {
         return try await post("command", body: request, timeout: commandTimeout)
     }
 
+    /// Sets the computer's approval wait. `signature` is over `WaitMessage.bytes`.
+    public func setWait(_ wait: Int, nonce: String, signature: Data, deviceId: String) async throws -> CommandResponse {
+        let request = CommandRequest(deviceId: deviceId, action: .setWait, nonce: nonce, signature: signature.base64EncodedString(), wait: wait)
+        return try await post("command", body: request, timeout: helloTimeout)
+    }
+
     /// `signature` is over `ApprovalMessage.bytes`.
     public func approve(_ approval: Approval, signature: Data, deviceId: String) async throws -> CommandResponse {
         let request = CommandRequest(deviceId: deviceId, action: .approve, nonce: approval.nonce,

@@ -323,6 +323,8 @@ const CARD_LIFETIME_SECONDS = 8 * 3600 - 300;
 /// Starting a card lights up the iPhone, and Apple limits how often apps may, so not more often than this.
 const MIN_START_INTERVAL_MS = 10 * 60_000;
 const MAX_CARD_COMPUTERS = 8;
+/// The longest a request waits: "until answered" (ApprovalWait in Core/Sources/AppCore/Protocol.swift).
+const MAX_APPROVAL_WAIT_SECONDS = 24 * 60 * 60;
 const MAX_CARD_REQUESTS = 3;
 const MAX_CARD_ENTRIES = 16;
 const MAX_REGISTRATIONS_PER_MINUTE = 20;
@@ -584,7 +586,7 @@ function cardUpdate(request: unknown): { cards: string[]; entry: CardEntry } | u
     const { id, title, detail, expiresIn } = (value ?? {}) as { id?: unknown; title?: unknown; detail?: unknown; expiresIn?: unknown };
     if (typeof id !== "string" || !id || id.length > 100 || typeof title !== "string" || typeof detail !== "string" ||
         typeof expiresIn !== "number" || !Number.isFinite(expiresIn)) return [];
-    return [{ id, title: clip(title, 300), detail: clip(detail, 300), until: now + Math.min(Math.max(Math.round(expiresIn), 0), 300) }];
+    return [{ id, title: clip(title, 300), detail: clip(detail, 300), until: now + Math.min(Math.max(Math.round(expiresIn), 0), MAX_APPROVAL_WAIT_SECONDS) }];
   }).slice(0, 5);
   return { cards: ids, entry: { locked: typeof locked === "boolean" ? locked : null, approvals: waiting } };
 }

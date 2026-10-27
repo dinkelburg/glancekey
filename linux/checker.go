@@ -117,11 +117,40 @@ func runChecker(args []string) int {
 		logger.Printf("%s can't ask the iPhone: %s", appName, message.Error)
 		return 1
 	}
-	tell("approve on your iPhone, or wait %d s to type your password.", approval.ExpiresIn)
+	// This computer's approval wait, from the agent (wait.go).
+	waitFor := *wait
+	if seconds := time.Duration(message.ExpiresIn) * time.Second; seconds > 0 && seconds <= maxApprovalWait {
+		waitFor = seconds
+	}
+	enter := pressedEnter()
+	forever := waitFor >= maxApprovalWait
+	switch {
+	case enter != nil && forever:
+		tell("approve on your iPhone, or press Enter to type your password.")
+	case enter != nil:
+		tell("approve on your iPhone, or press Enter to type your password (it waits %s).", describeApprovalWait(int(waitFor/time.Second)))
+	case forever:
+		tell("approve on your iPhone.")
+	default:
+		tell("approve on your iPhone, or wait %s to type your password.", describeApprovalWait(int(waitFor/time.Second)))
+	}
 
-	conn.SetDeadline(time.Now().Add(*wait + 5*time.Second))
-	message = checkerMessage{}
-	if decoder.Decode(&message) != nil || message.Error != "" {
+	conn.SetDeadline(time.Now().Add(waitFor + 5*time.Second))
+	answers := make(chan checkerMessage, 1)
+	go func() {
+		var answer checkerMessage
+		if decoder.Decode(&answer) != nil && answer.Error == "" {
+			answer.Error = "no answer"
+		}
+		answers <- answer
+	}()
+	select {
+	case <-enter:
+		// Hanging up takes the request off the iPhone; sudo asks for the password next.
+		return 1
+	case message = <-answers:
+	}
+	if message.Error != "" {
 		tell("no answer from your iPhone.")
 		return 1
 	}
@@ -147,6 +176,30 @@ func runChecker(args []string) int {
 		return 0
 	}
 	return 1
+}
+
+// pressedEnter reports Enter on the terminal sudo runs in, so you can type your password instead of waiting. nil
+// without one (polkit's dialogs, sudo in a script).
+func pressedEnter() <-chan struct{} {
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		return nil
+	}
+	pressed := make(chan struct{})
+	go func() {
+		defer tty.Close()
+		buffer := make([]byte, 1)
+		for {
+			if _, err := tty.Read(buffer); err != nil {
+				return
+			}
+			if buffer[0] == '\n' || buffer[0] == '\r' {
+				close(pressed)
+				return
+			}
+		}
+	}()
+	return pressed
 }
 
 // tell prints a line for you in the terminal; PAM passes the checker's output on (pam_exec's stdout option, or

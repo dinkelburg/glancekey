@@ -109,6 +109,19 @@ struct AuthenticatorTests {
         #expect(throws: AuthError.unknownNonce) { try authenticator.verify(signedCommand(.unlock, nonce: nonce), devices: [device]) }
     }
 
+    @Test func waitIsSignedWithItsValue() throws {
+        let device = try pair()
+        func request(signed: Int, sent: Int) throws -> CommandRequest {
+            let nonce = authenticator.issueNonce(for: device.id)
+            let message = WaitMessage.bytes(machineId: "machine-1", deviceId: device.id, nonce: nonce, wait: signed)
+            return CommandRequest(deviceId: device.id, action: .setWait, nonce: nonce,
+                                  signature: try phoneKey.signature(for: message).rawRepresentation.base64EncodedString(), wait: sent)
+        }
+        #expect(try authenticator.verify(request(signed: 300, sent: 300), devices: [device]).id == device.id)
+        // A relay that changes the value fails the signature.
+        #expect(throws: AuthError.badSignature) { try authenticator.verify(request(signed: 300, sent: ApprovalWait.untilAnswered), devices: [device]) }
+    }
+
     @Test func unknownDeviceRejected() throws {
         let nonce = authenticator.issueNonce(for: "phone-1")
         #expect(throws: AuthError.unknownDevice) { try authenticator.verify(signedCommand(.unlock, nonce: nonce), devices: []) }
@@ -275,6 +288,17 @@ struct ProtocolTests {
         #expect(later.isSame(as: message))
         later.card.locked = false
         #expect(!later.isSame(as: message))
+    }
+
+    // The same bytes are pinned in the Go tests (TestWaitMessageMatchesSwift).
+    @Test func waitMessage() throws {
+        #expect(String(decoding: WaitMessage.bytes(machineId: "m", deviceId: "d", nonce: "n", wait: 300), as: UTF8.self)
+            == "faceunlock-wait/v1\nm\nd\nn\n300")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        #expect(String(decoding: try encoder.encode(CommandRequest(deviceId: "d", action: .setWait, nonce: "n", signature: "s", wait: 300)),
+                       as: UTF8.self) == #"{"action":"setWait","deviceId":"d","nonce":"n","signature":"s","wait":300}"#)
+        #expect(ApprovalWait.name(30) == "30 seconds" && ApprovalWait.name(60) == "1 minute" && ApprovalWait.name(900) == "15 minutes")
     }
 
     @Test func cardIds() {

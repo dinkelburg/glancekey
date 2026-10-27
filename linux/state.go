@@ -19,6 +19,8 @@ type State struct {
 	Devices     []PairedDevice `json:"devices"`
 	// SealedPasswords is the login password sealed to each paired iPhone's password key, by device id (seal.go).
 	SealedPasswords map[string]SealedPassword `json:"sealedPasswords,omitempty"`
+	// ApprovalWait is how long approvals wait for the iPhone, in seconds; 0 for the default (wait.go).
+	ApprovalWait int `json:"approvalWait,omitempty"`
 }
 
 func configDir() string {

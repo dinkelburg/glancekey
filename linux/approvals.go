@@ -26,6 +26,9 @@ type checkerMessage struct {
 	// Accepted is the checker's verdict on an approval, which the agent passes on to the iPhone.
 	Accepted *bool  `json:"accepted,omitempty"`
 	Error    string `json:"error,omitempty"`
+	// ExpiresIn, with Waiting, is how long to wait for the iPhone: this computer's approval wait (wait.go). A checker
+	// asked by an older agent, which doesn't say, keeps its own.
+	ExpiresIn int `json:"expiresIn,omitempty"`
 }
 
 type approvalAnswer struct {
@@ -42,7 +45,7 @@ type pendingApproval struct {
 	verdicts chan checkerMessage
 }
 
-const maxApprovalWait = 2 * time.Minute
+const maxApprovalWait = untilAnswered * time.Second
 
 func validateApproval(approval *Approval) error {
 	switch {
@@ -75,6 +78,7 @@ func (a *Agent) serveApproval(conn net.Conn, decoder *json.Decoder, approval *Ap
 		reply(checkerMessage{Error: err.Error()})
 		return
 	}
+	approval.ExpiresIn = a.approvalWait()
 
 	pending := &pendingApproval{
 		approval: *approval,
@@ -94,7 +98,7 @@ func (a *Agent) serveApproval(conn net.Conn, decoder *json.Decoder, approval *Ap
 	}()
 
 	conn.SetDeadline(time.Time{})
-	if !reply(checkerMessage{Waiting: true}) {
+	if !reply(checkerMessage{Waiting: true, ExpiresIn: approval.ExpiresIn}) {
 		return
 	}
 	log.Printf("Waiting for your iPhone to approve: %s", approval.Title)

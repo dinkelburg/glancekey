@@ -202,7 +202,9 @@ func (a *Authenticator) Verify(req CommandRequest, devices []PairedDevice) (Pair
 		return PairedDevice{}, nil, errExpiredNonce
 	}
 	message := signedMessage(a.machineID, device.ID, req.Action, req.Nonce)
-	if req.carriesPasswordKeys() {
+	if req.Action == actionSetWait {
+		message = waitMessage(a.machineID, device.ID, req.Nonce, req.Wait)
+	} else if req.carriesPasswordKeys() {
 		sessionKey := ""
 		if c.session != nil {
 			sessionKey = base64.StdEncoding.EncodeToString(c.session.PublicKey().Bytes())

@@ -233,6 +233,7 @@ func TestCheckerRejectsLyingAgent(t *testing.T) {
 
 func TestApprovalTimesOutAndCancels(t *testing.T) {
 	s := newApprovalSetup(t)
+	s.agent.state.ApprovalWait = 1
 	start := time.Now()
 	if status := exitStatus(t, s.check("1s")); status != 1 || time.Since(start) > 4*time.Second {
 		t.Fatalf("timeout: exit %d after %v", status, time.Since(start))

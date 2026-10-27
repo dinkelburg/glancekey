@@ -23,6 +23,32 @@ public enum Action: String, Codable, Sendable, CaseIterable {
     /// Answers an `Approval`. Approving is signed with `ApprovalMessage`; denying isn't signed, since it only
     /// makes the computer ask for its password instead.
     case approve, deny
+    /// Sets how long approvals wait for the iPhone (`ApprovalWait`, `CommandRequest.wait`), signed with `WaitMessage`.
+    case setWait
+}
+
+/// How long sudo, polkit and the Mac's password dialogs wait for the iPhone before they ask for the password. Each
+/// computer keeps its own (it's the source of truth) and hands it to its checker with every request; you set it there
+/// or from the iPhone. It never decides an approval: the checker still verifies the iPhone's signature itself.
+public enum ApprovalWait {
+    /// In practice, until you approve, deny or give up at the computer (Enter or Ctrl-C).
+    public static let untilAnswered = 24 * 60 * 60
+    /// The waits you can choose, in seconds. The first is the default.
+    public static let choices = [30, 60, 300, 900, untilAnswered]
+
+    /// A request that waits longer than this shows no countdown: it's one that waits until you answer.
+    public static func showsCountdown(until deadline: Date) -> Bool {
+        deadline.timeIntervalSinceNow < 3600
+    }
+
+    public static func name(_ seconds: Int) -> String {
+        switch seconds {
+        case untilAnswered: "Until answered"
+        case ..<60: "\(seconds) seconds"
+        case 60: "1 minute"
+        default: "\(seconds / 60) minutes"
+        }
+    }
 }
 
 /// What the pairing QR code contains.
@@ -167,9 +193,11 @@ public struct HelloResponse: Codable, Sendable {
     public var wantsPasswordKey: Bool?
     /// The computer keeps its password sealed to this iPhone; unlocking sends the key that opens it.
     public var sealedPassword: SealedPasswordChallenge?
+    /// How long its approvals wait for the iPhone (`ApprovalWait`); nil from a computer that can't change it.
+    public var approvalWait: Int?
 
     public init(machineId: String, machineName: String, nonce: String, locked: Bool? = nil, approvals: [Approval]? = nil,
-                wantsPasswordKey: Bool? = nil, sealedPassword: SealedPasswordChallenge? = nil) {
+                wantsPasswordKey: Bool? = nil, sealedPassword: SealedPasswordChallenge? = nil, approvalWait: Int? = nil) {
         self.machineId = machineId
         self.machineName = machineName
         self.nonce = nonce
@@ -177,6 +205,7 @@ public struct HelloResponse: Codable, Sendable {
         self.approvals = approvals
         self.wantsPasswordKey = wantsPasswordKey
         self.sealedPassword = sealedPassword
+        self.approvalWait = approvalWait
     }
 }
 
@@ -242,9 +271,11 @@ public struct CommandRequest: Codable, Sendable {
     public var passwordKey: String?
     /// Opens the sealed password when hello sent a `sealedPassword` challenge.
     public var wrappedKey: WrappedKey?
+    /// The approval wait that `setWait` sets, in seconds (`ApprovalWait`).
+    public var wait: Int?
 
     public init(deviceId: String, action: Action, nonce: String, signature: String, approvalId: String? = nil,
-                passwordKey: String? = nil, wrappedKey: WrappedKey? = nil) {
+                passwordKey: String? = nil, wrappedKey: WrappedKey? = nil, wait: Int? = nil) {
         self.deviceId = deviceId
         self.action = action
         self.nonce = nonce
@@ -252,6 +283,7 @@ public struct CommandRequest: Codable, Sendable {
         self.approvalId = approvalId
         self.passwordKey = passwordKey
         self.wrappedKey = wrappedKey
+        self.wait = wait
     }
 }
 
@@ -387,6 +419,13 @@ public enum SignedMessage {
         }
         return Data(["faceunlock/v2", machineId, deviceId, action.rawValue, nonce, sessionKey ?? "", passwordKey ?? "",
                      wrappedKey?.key ?? "", wrappedKey?.box ?? ""].joined(separator: "\n").utf8)
+    }
+}
+
+public enum WaitMessage {
+    /// The exact bytes the iPhone signs to set the approval wait, so nothing in between can change the value.
+    public static func bytes(machineId: String, deviceId: String, nonce: String, wait: Int) -> Data {
+        Data("faceunlock-wait/v1\n\(machineId)\n\(deviceId)\n\(nonce)\n\(wait)".utf8)
     }
 }
 

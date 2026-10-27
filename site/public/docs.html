@@ -91,9 +91,10 @@ glancekey-agent status         # the connection, the lock screen and your paired
     <h2 id="sudo">Approving sudo</h2>
     <p>Optional. sudo, and on Linux also polkit's admin dialogs, first waits for your iPhone:</p>
     <pre><code>$ sudo pacman -Syu
-GlanceKey: approve on your iPhone, or wait 30 s to type your password.
+GlanceKey: approve on your iPhone, or press Enter to type your password (it waits 30 seconds).
 GlanceKey: approved on iPhone.</code></pre>
-    <p>Your iPhone shows the exact command. Tap <strong>Approve</strong> and look at your phone. If you tap <strong>Deny</strong>, don't answer within 30 seconds, or the iPhone can't be reached, sudo asks for your password as usual. Over SSH it asks for your password straight away.</p>
+    <p>Your iPhone shows the exact command. Tap <strong>Approve</strong> and look at your phone. If you tap <strong>Deny</strong>, press Enter in the terminal, don't answer in time, or the iPhone can't be reached, sudo asks for your password as usual. Over SSH it asks for your password straight away.</p>
+    <p>It waits 30 seconds unless you choose otherwise: 1, 5 or 15 minutes, or until you answer. Change it on the computer's page in the iPhone app, in the Mac menu (<strong>Wait for iPhone</strong>), or on Linux with <code>glancekey-agent set-wait 5m</code>.</p>
     <h3>On a Mac</h3>
     <p>In the GlanceKey menu, click <strong>Turn on…</strong> next to sudo and enter an administrator password. After pairing another iPhone or updating GlanceKey, the menu offers <strong>Update…</strong>. <strong>Turn off…</strong> puts sudo back to just your password.</p>
     <p>If sudo ever stops working, this undoes it without sudo:</p>

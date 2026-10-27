@@ -128,7 +128,9 @@ public final class Authenticator {
             throw AuthError.unknownNonce
         }
         guard challenge.expires > now() else { throw AuthError.expiredNonce }
-        let message = SignedMessage.bytes(machineId: machineId, deviceId: device.id, action: request.action, nonce: request.nonce)
+        let message = request.action == .setWait
+            ? WaitMessage.bytes(machineId: machineId, deviceId: device.id, nonce: request.nonce, wait: request.wait ?? 0)
+            : SignedMessage.bytes(machineId: machineId, deviceId: device.id, action: request.action, nonce: request.nonce)
         guard device.isValidSignature(request.signature, for: message) else { throw AuthError.badSignature }
         return device
     }

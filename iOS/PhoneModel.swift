@@ -38,6 +38,8 @@ struct MachineStatus: Equatable {
     var approvals: [Approval] = []
     /// Why the computer couldn't be reached.
     var error: String?
+    /// How long its approvals wait for the iPhone (`ApprovalWait`); nil if it can't be changed from here.
+    var approvalWait: Int?
     var checkedAt = Date()
 }
 
@@ -137,9 +139,9 @@ final class PhoneModel: ObservableObject {
         return machines.flatMap { machine -> [WaitingApproval] in
             guard let status = statuses[machine.machineId] else { return [] }
             return status.approvals.map {
-                // Computers wait two minutes at most; the bound also keeps a bad value from the relay harmless.
+                // The bound keeps a bad value from the relay harmless.
                 WaitingApproval(machine: machine, approval: $0,
-                                expiresAt: status.checkedAt.addingTimeInterval(TimeInterval(min(max($0.expiresIn, 0), 300))))
+                                expiresAt: status.checkedAt.addingTimeInterval(TimeInterval(min(max($0.expiresIn, 0), ApprovalWait.untilAnswered))))
             }
         }
         .filter { $0.expiresAt > now }
@@ -173,7 +175,7 @@ final class PhoneModel: ObservableObject {
         for (machine, result) in results {
             switch result {
             case .success(let hello):
-                statuses[machine.machineId] = MachineStatus(locked: hello.locked, approvals: hello.approvals ?? [])
+                statuses[machine.machineId] = MachineStatus(locked: hello.locked, approvals: hello.approvals ?? [], approvalWait: hello.approvalWait)
                 if hello.machineName != machine.machineName {
                     update(machine.machineId) { $0.machineName = hello.machineName }
                 }
@@ -415,6 +417,30 @@ final class PhoneModel: ObservableObject {
     }
 
     // MARK: - Approvals
+
+    /// Sets how long `machine`'s approvals wait for this iPhone, after Face ID. The computer keeps the setting and checks
+    /// the signature over the value.
+    @discardableResult
+    func setApprovalWait(_ wait: Int, on machine: PairedMachine) async -> OperationResult {
+        let context = LAContext()
+        context.localizedCancelTitle = "Cancel"
+        let result: OperationResult
+        do {
+            async let approval = context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
+                                                        localizedReason: "Let \(machine.machineName) wait \(ApprovalWait.name(wait).lowercased())")
+            let hello = try await machine.client.hello(deviceId: machine.deviceId)
+            _ = try await approval
+            let message = WaitMessage.bytes(machineId: machine.machineId, deviceId: machine.deviceId, nonce: hello.nonce, wait: wait)
+            let signature = try DeviceKey.sign(message, tag: machine.deviceId, context: context)
+            let response = try await machine.client.setWait(wait, nonce: hello.nonce, signature: signature, deviceId: machine.deviceId)
+            result = OperationResult(success: response.ok, message: response.message)
+            if response.ok { statuses[machine.machineId]?.approvalWait = wait }
+        } catch {
+            result = OperationResult(success: false, message: Self.describe(error))
+        }
+        if !result.success, result.message != "Cancelled" { states[machine.machineId] = .finished(result) }
+        return result
+    }
 
     /// Approves a waiting password prompt with Face ID. The computer verifies the signature.
     @discardableResult

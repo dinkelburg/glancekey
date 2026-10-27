@@ -202,7 +202,7 @@ private struct RequestRow: View {
                         .lineLimit(1)
                     HStack(spacing: 4) {
                         Text(computerName)
-                        if request.expiresAt > .now {
+                        if request.expiresAt > .now && ApprovalWait.showsCountdown(until: request.expiresAt) {
                             Text("·")
                             Text(timerInterval: Date.now...request.expiresAt, countsDown: true)
                                 .monospacedDigit()

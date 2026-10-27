@@ -35,6 +35,8 @@ const (
 	// signed, since it only makes the computer ask for its password instead.
 	actionApprove Action = "approve"
 	actionDeny    Action = "deny"
+	// actionSetWait sets how long approvals wait for the iPhone (CommandRequest.Wait), signed with waitMessage.
+	actionSetWait Action = "setWait"
 )
 
 // PairingInvite is what the pairing QR code holds.
@@ -87,6 +89,8 @@ type HelloResponse struct {
 	WantsPasswordKey bool `json:"wantsPasswordKey,omitempty"`
 	// SealedPassword lets the iPhone open the password sealed to it, when unlocking.
 	SealedPassword *SealedPasswordChallenge `json:"sealedPassword,omitempty"`
+	// ApprovalWait is how long approvals wait for the iPhone, in seconds (wait.go).
+	ApprovalWait int `json:"approvalWait,omitempty"`
 }
 
 // Approval is a password prompt (sudo, a polkit dialog) waiting for the iPhone. The root-owned checker
@@ -109,6 +113,8 @@ type CommandRequest struct {
 	PasswordKey string `json:"passwordKey,omitempty"`
 	// WrappedKey opens the sealed password when hello sent a challenge.
 	WrappedKey *WrappedKey `json:"wrappedKey,omitempty"`
+	// Wait is the approval wait that actionSetWait sets, in seconds.
+	Wait int `json:"wait,omitempty"`
 }
 
 // carriesPasswordKeys says whether the command is signed with signedMessageV2.
@@ -209,6 +215,11 @@ func signedMessageV2(machineID, deviceID string, action Action, nonce, sessionKe
 	}
 	return []byte(strings.Join([]string{"faceunlock/v2", machineID, deviceID, string(action), nonce, sessionKey, passwordKey,
 		wrappedKey, wrappedBox}, "\n"))
+}
+
+// waitMessage is what the iPhone signs to set the approval wait, so nothing in between can change the value.
+func waitMessage(machineID, deviceID, nonce string, wait int) []byte {
+	return []byte(fmt.Sprintf("faceunlock-wait/v1\n%s\n%s\n%s\n%d", machineID, deviceID, nonce, wait))
 }
 
 // approvalMessage is what the iPhone signs to approve. It includes what the iPhone showed, so a swapped title
