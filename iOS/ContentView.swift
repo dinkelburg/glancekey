@@ -502,7 +502,16 @@ struct PairingView: View {
                     Link("Download for Mac or Linux", destination: Brand.download)
                 }
                 Step(number: 2, text: "On your Mac, click the \(Brand.name) menu bar icon, then **Pair iPhone…** On Linux, run **\(Brand.id)-agent pair**.")
-                Step(number: 3, text: "Scan the QR code with the iPhone **Camera** app and tap the \(Brand.name) link.")
+                if QRScanButton.isSupported {
+                    Step(number: 3, text: "Scan the QR code it shows. The iPhone **Camera** app works too: tap the \(Brand.name) link.")
+                } else {
+                    Step(number: 3, text: "Scan the QR code with the iPhone **Camera** app and tap the \(Brand.name) link.")
+                }
+            }
+
+            if QRScanButton.isSupported {
+                QRScanButton { code in Task { await model.pair(code: code) } }
+                    .disabled(model.isPairing)
             }
 
             Divider()

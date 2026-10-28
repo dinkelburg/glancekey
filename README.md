@@ -63,13 +63,13 @@ scp build/linux/glancekey-agent-amd64 omarchy:~/.local/bin/glancekey-agent
 # on the Linux machine:
 glancekey-agent install-service   # systemd user service, starts with your session
 glancekey-agent set-password      # needed for Omarchy's lock screen; verified, then encrypted to your iPhones
-glancekey-agent pair              # shows the QR code to scan with the iPhone Camera
+glancekey-agent pair              # shows the QR code to scan in GlanceKey or with the iPhone Camera
 glancekey-agent status
 ```
 Logs: `journalctl --user -u glancekey-agent -f`
 
 ### Pairing
-On the Mac click **Pair iPhone…**; on Linux run `glancekey-agent pair`. Then scan the QR code with the iPhone Camera app.
+On the Mac click **Pair iPhone…**; on Linux run `glancekey-agent pair`. Then tap **Scan QR code** in GlanceKey (`iOS/QRScanner.swift`, Apple's VisionKit scanner; the image stays on the iPhone), or scan it with the iPhone Camera app, which opens the `glancekey://pair` link.
 
 ### Your own relay
 `relay/wrangler.jsonc` deploys the public relay. For your own Cloudflare account, remove `account_id` there and replace the two `routes` with your own domain (or remove them for a workers.dev address). Then `cd relay && npm install && npx wrangler deploy`, and point your computers at it:

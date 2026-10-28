@@ -100,6 +100,7 @@ targets:
         CFBundleShortVersionString: $(IPHONE_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSFaceIDUsageDescription: $(APP_NAME) uses Face ID to approve unlocking your computers.
+        NSCameraUsageDescription: $(APP_NAME) uses the camera to scan the pairing code your computer shows. The image stays on your iPhone.
         # Only encryption built into iOS (HTTPS, and CryptoKit for the signing keys and the sealed password's key),
         # which is exempt from export documentation, so App Store Connect doesn't ask about it for every upload.
         ITSAppUsesNonExemptEncryption: false
