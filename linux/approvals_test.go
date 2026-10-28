@@ -570,3 +570,16 @@ func TestDescribeApproverChanges(t *testing.T) {
 		t.Fatalf("first setup:\n%s", got)
 	}
 }
+
+// An update finds the line already in sudo_local and leaves the file alone: macOS protects /etc/pam.d, and the Mac
+// app's administrator prompt can't change it.
+func TestAddPAMLineKeepsAFileThatHasIt(t *testing.T) {
+	line := "auth       sufficient     " + macModulePath + " " + checkerInstallPath
+	set := "# sudo_local: local config file which survives system update and is included for sudo\n" + pamMarker + "\n" + line + "\n"
+	if got := addPAMLine(set, line); got != set {
+		t.Fatalf("changed a file that already has the line:\n%q\n%q", set, got)
+	}
+	if fresh := "# sudo_local: local config file which survives system update and is included for sudo\n"; addPAMLine(fresh, line) == fresh {
+		t.Fatal("didn't add the line")
+	}
+}

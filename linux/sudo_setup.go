@@ -42,6 +42,7 @@ func cmdEnableSudo(args []string) error {
 	pamCheck := flags.String("pam-check", "", "macOS: the built pam-check tool, to test the module before sudo uses it")
 	approversFile := flags.String("approvers", "", "the iPhones to trust, as the Mac app passes them; otherwise they come from your running agent or Mac app")
 	yes := flags.Bool("yes", false, "trust the paired iPhones without asking")
+	ask := flags.Bool("ask", false, "ask before trusting the iPhones, also with --approvers (the Mac app's setup in Terminal)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -69,7 +70,7 @@ func cmdEnableSudo(args []string) error {
 	// password prompt instead.
 	previous, _ := loadApprovers(approversPath)
 	fmt.Print(describeApproverChanges(previous, approvers))
-	if *approversFile == "" && !*yes {
+	if (*approversFile == "" && !*yes) || *ask {
 		if err := confirm("Let them approve sudo on " + approvers.MachineName + "?"); err != nil {
 			return err
 		}
@@ -97,7 +98,7 @@ func cmdEnableSudo(args []string) error {
 	case "linux":
 		err = enableLinuxPAM()
 	case "darwin":
-		err = enableMacPAM(*module, *pamCheck, account.Username)
+		err = enableMacPAM(*module, *pamCheck)
 	default:
 		err = errors.New("only Linux and macOS are supported")
 	}
@@ -126,7 +127,19 @@ func cmdDisableSudo() error {
 		}
 	}
 	if err := removePAMConfig(files); err != nil {
-		return err
+		if runtime.GOOS != "darwin" || !errors.Is(err, fs.ErrPermission) {
+			return err
+		}
+		// macOS protects /etc/pam.d from processes it can't ask you about, such as one the Mac app starts through the
+		// administrator prompt. Without approvers.json the checker sends sudo straight to the password; the line, the
+		// checker and the module (which sudo must still find) stay until this runs from Terminal.
+		for _, path := range []string{approversPath, filepath.Dir(approversPath)} {
+			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+		fmt.Printf("sudo asks for your password again. macOS didn't let this change %s; to take the line out too, run in Terminal:\n  sudo %s disable-sudo\n", files[0], checkerInstallPath)
+		return nil
 	}
 	for _, path := range []string{approversPath, filepath.Dir(approversPath), checkerInstallPath, filepath.Dir(checkerInstallPath), macModulePath} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -302,9 +315,15 @@ func findPAMExec() string {
 	return ""
 }
 
+// errPAMProtected: macOS protects /etc/pam.d, and only lets a change through when it can ask you, such as from Terminal.
+var errPAMProtected = errors.New("macOS didn't let this change /etc/pam.d/sudo_local, which it protects; run it from Terminal (the " +
+	appName + " menu's Turn on… does)")
+
 // enableMacPAM installs the PAM module, checks that PAM can load it and run the checker (a module that fails to
 // load would break sudo completely), and only then adds it to /etc/pam.d/sudo_local, which survives macOS updates.
-func enableMacPAM(module, pamCheck, username string) error {
+// When the line is already there, as for an update, it leaves /etc/pam.d alone: macOS protects it (errPAMProtected),
+// and the Mac app's administrator prompt can't get past that.
+func enableMacPAM(module, pamCheck string) error {
 	if module == "" || pamCheck == "" {
 		return fmt.Errorf("on a Mac, turn sudo approvals on in the %s menu, or run scripts/enable-mac-sudo.sh", appName)
 	}
@@ -317,28 +336,35 @@ func enableMacPAM(module, pamCheck, username string) error {
 	if err := checkTree(macModulePath); err != nil {
 		return fmt.Errorf("sudo would load the module from an unsafe place: %w", err)
 	}
-	checkService := "/etc/pam.d/" + appID + "-check"
-	if err := writeFile(checkService, []byte("auth       required       "+macModulePath+" "+checkerInstallPath+" --check\n"), 0o644); err != nil {
-		return err
-	}
-	out, err := exec.Command(pamCheck, appID+"-check", username).CombinedOutput()
-	os.Remove(checkService)
-	if err != nil {
+	// Loads the module and calls it as sudo would, without a PAM config file for the test (that would be in /etc/pam.d).
+	if out, err := exec.Command(pamCheck, "--direct", macModulePath, checkerInstallPath, "--check").CombinedOutput(); err != nil {
 		return fmt.Errorf("PAM couldn't use the module, so sudo_local wasn't changed: %v: %s", err, out)
 	}
 
 	file := "/etc/pam.d/sudo_local"
 	data, err := os.ReadFile(file)
+	exists := err == nil
 	if errors.Is(err, fs.ErrNotExist) {
 		data = []byte("# sudo_local: local config file which survives system update and is included for sudo\n")
 	} else if err != nil {
 		return err
-	} else if err := backUp(file, data); err != nil {
-		return err
 	}
-	line := "auth       sufficient     " + macModulePath + " " + checkerInstallPath
-	if err := writeFile(file, []byte(addPAMLine(string(data), line)), 0o444); err != nil {
-		return err
+	updated := addPAMLine(string(data), "auth       sufficient     "+macModulePath+" "+checkerInstallPath)
+	if updated == string(data) {
+		return nil
+	}
+	var writeErr error
+	if exists {
+		writeErr = backUp(file, data)
+	}
+	if writeErr == nil {
+		writeErr = writeFile(file, []byte(updated), 0o444)
+	}
+	if errors.Is(writeErr, fs.ErrPermission) {
+		return errPAMProtected
+	}
+	if writeErr != nil {
+		return writeErr
 	}
 	fmt.Println("Updated", file)
 	return nil

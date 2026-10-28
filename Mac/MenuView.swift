@@ -284,6 +284,10 @@ private struct OptionsSection: View {
                     sudoButton.disabled(isChangingSudo).controlSize(.regular)
                 }
             }
+            if model.sudoApprovals == .lineLeftOver {
+                Button("Remove the line in Terminal…") { sudoError = model.removeSudoLine() }
+                    .controlSize(.small)
+            }
             if let sudoError {
                 Text(sudoError)
                     .font(.caption)
@@ -309,13 +313,13 @@ private struct OptionsSection: View {
     private var sudoIsOutdated: Bool {
         switch model.sudoApprovals {
         case .outdated, .stale, .otherVersion: true
-        case .off, .on: false
+        case .off, .lineLeftOver, .on: false
         }
     }
 
     @ViewBuilder private var sudoButton: some View {
         switch model.sudoApprovals {
-        case .off: Button("Turn on…") { setSudoApprovals(on: true) }
+        case .off, .lineLeftOver: Button("Turn on…") { setSudoApprovals(on: true) }
         case .outdated, .stale, .otherVersion: Button("Update…") { setSudoApprovals(on: true) }
         case .on: Button("Turn off…") { setSudoApprovals(on: false) }
         }
@@ -337,7 +341,8 @@ private struct OptionsSection: View {
         let turnOn = model.canSetUpSudo ? "turn this on" : "run scripts/enable-mac-sudo.sh"
         let update = model.canSetUpSudo ? "update this" : "run scripts/enable-mac-sudo.sh again"
         switch model.sudoApprovals {
-        case .off: return "sudo asks for your password. To approve it with your iPhone first, \(turnOn)."
+        case .off: return "sudo asks for your password. To approve it with your iPhone first, \(turnOn). The first time, macOS has you finish in Terminal."
+        case .lineLeftOver: return "sudo asks for your password. \(Brand.name)'s line stays in /etc/pam.d/sudo_local until you remove it; macOS only lets Terminal change that file."
         case .on: return "sudo waits for your iPhone first, then asks for your password."
         case .outdated(let name): return "\(name) can't approve sudo yet. To add it, \(update)."
         case .stale(let name): return "\(name) isn't paired anymore but can still approve sudo. To take it out, \(update)."

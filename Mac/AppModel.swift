@@ -26,6 +26,8 @@ final class AppModel: ObservableObject {
     /// Whether sudo waits for the iPhone (turned on from the menu or scripts/enable-mac-sudo.sh), from `Approvers.path`.
     enum SudoApprovals: Equatable {
         case off
+        /// Off, but sudo_local still has the line: macOS only lets Terminal change /etc/pam.d (`removeSudoLine`).
+        case lineLeftOver
         case on
         /// A paired iPhone isn't in approvers.json yet.
         case outdated(String)
@@ -215,9 +217,12 @@ final class AppModel: ObservableObject {
     }
 
     private static func readSudoApprovals(devices: [PairedDevice], checkerVersion: String?) -> SudoApprovals {
+        let hasLine = sudoLocalHasLine
         guard let data = FileManager.default.contents(atPath: Approvers.path),
               let approvers = try? JSONDecoder().decode(Approvers.self, from: data)
-        else { return .off }
+        else { return hasLine ? .lineLeftOver : .off }
+        // Without the line sudo never asks the checker, whatever else is installed.
+        guard hasLine else { return .off }
         if let missing = devices.first(where: { device in !approvers.devices.contains { $0.id == device.id } }) {
             return .outdated(missing.name)
         }
@@ -245,6 +250,14 @@ final class AppModel: ObservableObject {
 
     // MARK: - Turning sudo approvals on and off
 
+    private static let sudoLocal = "/etc/pam.d/sudo_local"
+
+    /// Whether sudo_local has the PAM module's line (linux/sudo_setup.go adds it).
+    private static var sudoLocalHasLine: Bool {
+        guard let text = try? String(contentsOfFile: sudoLocal, encoding: .utf8) else { return false }
+        return text.split(separator: "\n").contains { !$0.hasPrefix("#") && $0.contains("pam_\(Brand.id).so") }
+    }
+
     /// The checker, PAM module and pam-check this app carries (scripts/build-mac-helpers.sh).
     private static let helpers = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers")
     /// Where enable-sudo installs the checker (linux/checker.go), root-owned.
@@ -257,10 +270,15 @@ final class AppModel: ObservableObject {
 
     /// Makes sudo wait for the iPhones paired now (run it again after pairing another), or puts sudo back to just
     /// the password. Runs as root after macOS asks for an administrator's password. Returns an error message, or nil.
+    ///
+    /// macOS protects /etc/pam.d: it only lets a change through when it can ask you, which it can't for a script run
+    /// through the administrator prompt. So that prompt only does what leaves sudo_local as it is (an update, or
+    /// turning off, which leaves the line). Adding the line the first time runs the same script in Terminal.
     func setSudoApprovals(on: Bool) async -> String? {
         let script: String
         let reason: String
         if on {
+            let inTerminal = !Self.sudoLocalHasLine
             guard let team = Self.teamIdentifier else { return "This copy of \(Brand.name) isn't signed, so it can't set up sudo." }
             // Pins the exact helpers this app was signed with: another program could swap in older ones, also signed by
             // the team, but not without breaking this app's own signature, which is checked first.
@@ -293,8 +311,13 @@ final class AppModel: ObservableObject {
                 \(checks.joined(separator: "\n"))
                 printf '%s' \(shellQuoted(String(decoding: json, as: UTF8.self))) > "$dir/approvers.json"
                 SUDO_USER=\(shellQuoted(NSUserName())) "$dir/\(agent)" enable-sudo --approvers "$dir/approvers.json" \\
-                  --module "$dir/\(module)" --pam-check "$dir/pam-check"
+                  --module "$dir/\(module)" --pam-check "$dir/pam-check"\(inTerminal ? " --ask" : "")
                 """
+            if inTerminal {
+                // There the password prompt can't name the iPhones, so enable-sudo lists them and asks (--ask).
+                return openInTerminal(script, intro: "\(Brand.name) turns on sudo approvals. sudo asks for your Mac password, then which iPhones to trust.",
+                                      started: "Finish turning on sudo approvals in Terminal")
+            }
             // Every iPhone is called "iPhone", so the key's fingerprint tells them apart (the iPhone app shows its own).
             let names = ListFormatter.localizedString(byJoining: approvers.devices.map {
                 "\($0.name) (key \(PairedDevice.keyFingerprint($0.publicKey)))"
@@ -309,10 +332,48 @@ final class AppModel: ObservableObject {
         refreshStatus()
         if error == nil {
             note(on ? "sudo approvals are on" : "sudo approvals are off")
+            if sudoApprovals == .lineLeftOver {
+                note("A line stays in \(Self.sudoLocal) until you remove it in Terminal; sudo asks for your password meanwhile.")
+            }
         } else if let error, !error.isEmpty {
             note("Couldn't change sudo approvals: \(error)", isError: true)
         }
         return error
+    }
+
+    /// Takes the line out of sudo_local after turning off left it there: in Terminal, which macOS lets change /etc/pam.d.
+    func removeSudoLine() -> String? {
+        openInTerminal("\(Self.installedChecker) disable-sudo", intro: "\(Brand.name) takes its line out of \(Self.sudoLocal). sudo asks for your Mac password.",
+                       started: "Finish removing the line in Terminal")
+    }
+
+    /// Runs `rootScript` as root in a new Terminal window, where you type your password for sudo. Returns an error message,
+    /// or nil once Terminal opened it; the status follows from the files once it's done.
+    private func openInTerminal(_ rootScript: String, intro: String, started: String) -> String? {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("\(Brand.id)-\(UUID().uuidString)", isDirectory: true)
+        let root = dir.appendingPathComponent("root.sh"), command = dir.appendingPathComponent("\(Brand.name).command")
+        let commandText = """
+            #!/bin/sh
+            echo \(shellQuoted(intro))
+            echo
+            sudo /bin/sh \(shellQuoted(root.path))
+            status=$?
+            rm -rf \(shellQuoted(dir.path))
+            echo
+            if [ $status -eq 0 ]; then echo "Done. You can close this window."; else echo "Stopped; see above."; fi
+            """
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            try rootScript.write(to: root, atomically: true, encoding: .utf8)
+            try commandText.write(to: command, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: command.path)
+        } catch {
+            return "Couldn't prepare the Terminal command (\(error.localizedDescription))."
+        }
+        let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+        NSWorkspace.shared.open([command], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
+        note(started)
+        return nil
     }
 
     /// The code hashes of the helpers in this app (for the architecture this Mac runs), by file name, once this app's
