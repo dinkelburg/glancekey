@@ -16,6 +16,9 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
+# In the project for Xcode's StoreKit testing, not in the app.
+fileGroups:
+  - iOS/Unlimited.storekit
 packages:
   AppCore:
     path: Core
@@ -76,7 +79,12 @@ targets:
     type: application
     platform: iOS
     sources:
-      - iOS
+      - path: iOS
+        excludes:
+          - "*.storekit"
+    # The subscription's products for running from Xcode, without App Store Connect (Store.swift).
+    scheme:
+      storeKitConfiguration: iOS/Unlimited.storekit
     dependencies:
       - package: AppCore
         product: AppCore

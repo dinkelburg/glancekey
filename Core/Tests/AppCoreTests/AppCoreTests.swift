@@ -320,6 +320,31 @@ struct ProtocolTests {
     }
 }
 
+struct FreeTierTests {
+    // What the relay sends (relay/tests); a limit it leaves out or sends as null is no limit.
+    @Test func limitsJSON() throws {
+        let decoder = JSONDecoder()
+        #expect(try decoder.decode(FreeLimits.self, from: Data(#"{"computers":2,"perDay":15}"#.utf8)) == .standard)
+        #expect(try decoder.decode(FreeLimits.self, from: Data(#"{"computers":null}"#.utf8)) == FreeLimits(computers: nil, perDay: nil))
+    }
+
+    @Test func dailyUseStartsAgainAtMidnight() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Europe/Amsterdam"))
+        let evening = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 28, hour: 23, minute: 50)))
+        let night = evening.addingTimeInterval(20 * 60)
+
+        var use = DailyUse()
+        #expect(use.count(on: evening, calendar: calendar) == 0)
+        use.add(1, on: evening, calendar: calendar)
+        use.add(2, on: evening, calendar: calendar)
+        #expect(use.count(on: evening, calendar: calendar) == 3)
+        #expect(use.count(on: night, calendar: calendar) == 0)
+        use.add(1, on: night, calendar: calendar)
+        #expect(use == DailyUse(day: "2026-10-29", count: 1))
+    }
+}
+
 /// Made by CryptoKit from keys whose raw bytes are all 0x11 (iPhone's password key), 0x22 (seal), 0x33 (session),
 /// 0x44 (wrap) and 0x77 (signing), with AES-GCM nonces of 0x55 (seal) and 0x66 (wrap); machine-1, phone-1, nonce-1.
 enum SealVectors {

@@ -6,6 +6,8 @@ struct ContentView: View {
     @EnvironmentObject private var model: PhoneModel
     @State private var showingAddComputer = false
     @State private var showingSettings = false
+    /// `model.offer` once it's on screen: the other sheets close first.
+    @State private var shownOffer: UnlimitedOffer?
 
     var body: some View {
         NavigationStack {
@@ -45,7 +47,7 @@ struct ContentView: View {
                         .navigationDestination(for: String.self) { MachineDetail(machineId: $0) }
                 }
             }
-            .sheet(isPresented: $showingAddComputer) {
+            .sheet(isPresented: $showingAddComputer, onDismiss: showOffer) {
                 NavigationStack {
                     ScrollView { PairingView().padding() }
                         .navigationTitle("Add a computer")
@@ -55,7 +57,18 @@ struct ContentView: View {
                         }
                 }
             }
-            .sheet(isPresented: $showingSettings) { SettingsView() }
+            .sheet(isPresented: $showingSettings, onDismiss: showOffer) { SettingsView() }
+            .sheet(item: $shownOffer, onDismiss: { model.offer = nil }) { UnlimitedView(offer: $0) }
+            .onChange(of: model.offer?.id) {
+                if model.offer == nil {
+                    shownOffer = nil
+                } else if showingAddComputer || showingSettings {
+                    showingAddComputer = false
+                    showingSettings = false
+                } else {
+                    showOffer()
+                }
+            }
             .onChange(of: model.pairingResult) { _, result in
                 if result?.success == true { showingAddComputer = false }
             }
@@ -71,6 +84,10 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private func showOffer() {
+        if let offer = model.offer { shownOffer = offer }
     }
 
     private var isConfirmingPairing: Binding<Bool> {
@@ -357,6 +374,7 @@ private struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                UnlimitedSection()
                 LiveCardSection()
                 NotificationsSection()
                 Section {
@@ -371,6 +389,37 @@ private struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
+    }
+}
+
+/// The subscription: what's left of today's free use, or managing the subscription.
+private struct UnlimitedSection: View {
+    @ObservedObject private var store = Store.shared
+    @State private var managing = false
+
+    var body: some View {
+        Section {
+            if store.subscribed {
+                LabeledContent("\(Brand.name) Unlimited", value: "On")
+                Button("Manage Subscription") { managing = true }
+            } else if store.isOwnBuild {
+                LabeledContent("\(Brand.name) Unlimited", value: "Not needed")
+            } else {
+                if let perDay = store.limits.perDay {
+                    LabeledContent("Used today", value: "\(min(store.usedToday, perDay)) of \(perDay)")
+                }
+                NavigationLink("Get \(Brand.name) Unlimited") { UnlimitedView(offer: UnlimitedOffer(reason: .asked)) }
+            }
+        } footer: {
+            if store.subscribed {
+                Text("Unlock and approve as often as you like, on as many computers as you like.")
+            } else if store.isOwnBuild {
+                Text("This copy of \(Brand.name) wasn't installed from the App Store, so it has no limits.")
+            } else {
+                Text("\(store.freeSummary) Computers on a relay you host yourself have no limits.")
+            }
+        }
+        .manageSubscriptionsSheet(isPresented: $managing)
     }
 }
 

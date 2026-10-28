@@ -28,7 +28,10 @@
     // "GlanceKey push" in Ruben's Apple Developer account (Sandbox & Production, team scoped)
     "APNS_KEY_ID": "55K782WVH5",
     "APNS_TEAM_ID": "U78YQGE72M",
-    "APNS_TOPIC": "nl.dinkelworks.glancekey"
+    "APNS_TOPIC": "nl.dinkelworks.glancekey",
+    // What the App Store app allows without the subscription (GET /v1/limits); null is no limit. The app only
+    // applies them to computers on this relay, so a relay of your own has none.
+    "FREE_LIMITS": { "computers": 2, "perDay": 15 }
   },
   "observability": { "enabled": true }
 }

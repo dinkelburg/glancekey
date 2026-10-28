@@ -9,6 +9,7 @@ iPhone ──HTTPS──▶ relay (relay.glancekey.com, Cloudflare) ◀──Web
 - **iPhone app** (`iOS/`): tap **Unlock**, or just open the app, or use Siri, Shortcuts or the Action button. Look at the phone and the computer unlocks.
   - Opening the app first asks every paired computer whether it's locked or waiting for an approval (no Face ID). One locked computer: it unlocks it. Several: it lists them, with **Unlock all** for one Face ID. While the app is open it keeps checking, so new requests show up within seconds.
   - It also approves `sudo` (and polkit dialogs on Linux) on your computers, and the Mac's password dialogs; see [Approve sudo with your iPhone](#approve-sudo-with-your-iphone) and [Mac password dialogs](#mac-password-dialogs). Approving always takes a tap on **Approve**, then Face ID.
+  - Free for 2 computers and 15 unlocks and approvals a day; the subscription GlanceKey Unlimited removes both limits. See [Free version and subscription](#free-version-and-subscription).
 - **Mac app** (`Mac/`): menu bar app. Types your login password into the lock screen, or into a password dialog, when a paired iPhone asks.
 - **Linux agent** (`linux/`): a single static binary run as a systemd user service.
   - On Omarchy it types your password into Omarchy's lock screen with `wtype`.
@@ -137,6 +138,17 @@ Setting up the key (once, or after revoking it):
 3. `npx wrangler deploy`.
 
 Without the key the relay works as before and only logs that it can't notify. A self-hosted relay needs your own app build and key, since APNs only delivers to apps of the key's team. `wrangler dev` can't reach APNs (it needs HTTP/2), so notifications only work from a deployed relay.
+
+## Free version and subscription
+
+The App Store app is free for 2 computers and 15 unlocks and approvals a day (all computers together, from midnight to midnight on the iPhone). **GlanceKey Unlimited**, an auto-renewing App Store subscription (€2.99 a month or €24.99 a year, no trial), removes both limits. It's in the app's Settings, and the app offers it when you reach a limit, before Face ID.
+
+- **Counted on the iPhone** (`iOS/Store.swift`, `Core/Sources/AppCore/FreeTier.swift`). Only successful unlocks and approvals count, and **Unlock all** counts one per computer; locking and denying are free. At the limit, the computer just asks for its password as usual.
+- **Apple checks the subscription on the iPhone** with StoreKit, so neither the use nor the purchase reaches the relay or us, and pairing still needs no account.
+- **The relay says how many** (`GET /v1/limits`, `FREE_LIMITS` in `relay/wrangler.jsonc`), so the numbers change with a relay deploy instead of App Review. The app keeps the last answer, and 2 and 15 until it has one.
+- **Only on our relay, only in the App Store app.** Computers on a relay of your own have no limits, and neither has a copy you build and install yourself (it carries a provisioning profile, App Store and TestFlight installs don't). The simulator has the limits, for testing.
+- **Testing:** run `PhoneApp` from Xcode; its scheme uses `iOS/Unlimited.storekit`, so the subscription works without App Store Connect (Debug › StoreKit › Manage Transactions to cancel or refund). TestFlight purchases are free.
+- **App Store Connect:** subscription group "GlanceKey Unlimited" with `nl.dinkelworks.glancekey.unlimited.yearly` and `.monthly` (`Store.productIDs`), at the same level. Terms of use: Apple's standard EULA.
 
 ## Limitations
 

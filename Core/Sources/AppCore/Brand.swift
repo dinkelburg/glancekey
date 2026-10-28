@@ -8,6 +8,9 @@ public enum Brand {
     public static let name = "GlanceKey"
     public static let id = "glancekey"
     public static let relay = URL(string: "https://relay.glancekey.com")!
+    /// The relay we host, also under the address pairings from before 2026-10-26 use. Only computers on it have the
+    /// App Store app's free limits (`FreeLimits`).
+    public static let hostedRelayHosts: Set<String> = ["relay.glancekey.com", "glancekey.dinkelworks.nl"]
     public static let website = URL(string: "https://www.glancekey.com")!
     public static let download = website.appending(path: "download")
     public static let docs = website.appending(path: "docs")

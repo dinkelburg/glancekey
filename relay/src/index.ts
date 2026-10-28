@@ -32,6 +32,11 @@ export interface Env {
   APNS_KEY_ID?: string;
   APNS_TEAM_ID?: string;
   APNS_TOPIC?: string;
+  /// What the App Store app allows without the subscription, on this relay (FreeLimits in
+  /// Core/Sources/AppCore/FreeTier.swift): computers, and unlocks and approvals a day. In wrangler.jsonc, so the
+  /// limits change with a deploy instead of an app update; null or left out is no limit. The iPhone counts its own use
+  /// and asks Apple about the subscription, so the relay never sees either.
+  FREE_LIMITS?: { computers?: number | null; perDay?: number | null };
 }
 
 interface Pending {
@@ -59,6 +64,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/") return new Response(`${APP_NAME} relay\n`);
+    if (url.pathname === "/v1/limits") return json(200, freeLimits(env.FREE_LIMITS));
 
     const card = url.pathname.match(/^\/v1\/card\/([^/]+)$/);
     if (card) {
@@ -589,6 +595,12 @@ function cardUpdate(request: unknown): { cards: string[]; entry: CardEntry } | u
     return [{ id, title: clip(title, 300), detail: clip(detail, 300), until: now + Math.min(Math.max(Math.round(expiresIn), 0), MAX_APPROVAL_WAIT_SECONDS) }];
   }).slice(0, 5);
   return { cards: ids, entry: { locked: typeof locked === "boolean" ? locked : null, approvals: waiting } };
+}
+
+/// The free limits as the app reads them: a whole number of at least 0 each, or null for no limit.
+function freeLimits(limits: Env["FREE_LIMITS"]): { computers: number | null; perDay: number | null } {
+  const count = (value: unknown) => typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+  return { computers: count(limits?.computers), perDay: count(limits?.perDay) };
 }
 
 /// At most `limit` characters, counting emoji and other non-BMP characters as one.

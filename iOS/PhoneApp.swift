@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         LiveCardController.shared.start()
+        Store.shared.start()
         // Apple asks apps to register at every launch; the token can change. Asking for permission first only
         // shows a prompt if it was never asked, as after an update from the ntfy version, which had the same setting.
         if PhoneModel.shared.notificationsEnabled { Task { await PhoneModel.shared.enableNotifications() } }

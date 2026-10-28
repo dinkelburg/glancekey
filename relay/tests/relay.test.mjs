@@ -36,6 +36,7 @@ const relay = new Miniflare(convertV4MiniflareOptions({
     APNS_KEY_ID: "KEYID12345",
     APNS_TEAM_ID: "TEAMID1234",
     APNS_TOPIC: "com.example.app",
+    FREE_LIMITS: { computers: 2, perDay: 15 },
   },
   outboundService: apns,
 }));
@@ -75,6 +76,13 @@ async function promptly(response) {
     clearTimeout(timer);
   }
 }
+
+// The iPhone app reads this as FreeLimits (Core/Tests, FreeTierTests.limitsJSON).
+test("the relay tells the app the free limits", { timeout: 5000 }, async () => {
+  const response = await relay.dispatchFetch("http://localhost/v1/limits");
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), '{"computers":2,"perDay":15}');
+});
 
 test("an agent reply preserves its HTTP status and JSON body", { timeout: 5000 }, async () => {
   const machineId = crypto.randomUUID();

@@ -1,0 +1,89 @@
+{
+  "identifier" : "4F7C2B1E-9A3D-4E6B-8C21-5D0E7A9B3F12",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "nl.dinkelworks.glancekey",
+    "_developerTeamID" : "U78YQGE72M",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "NLD",
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "8B3E6D20",
+      "localizations" : [
+
+      ],
+      "name" : "GlanceKey Unlimited",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "24.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6A2D9C41",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited unlocks, approvals and computers",
+              "displayName" : "GlanceKey Unlimited, yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "nl.dinkelworks.glancekey.unlimited.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Unlimited Yearly",
+          "subscriptionGroupID" : "8B3E6D20",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "2.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6A2D9C42",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited unlocks, approvals and computers",
+              "displayName" : "GlanceKey Unlimited, monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "nl.dinkelworks.glancekey.unlimited.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Unlimited Monthly",
+          "subscriptionGroupID" : "8B3E6D20",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

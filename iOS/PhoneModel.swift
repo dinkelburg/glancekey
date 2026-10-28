@@ -97,6 +97,8 @@ final class PhoneModel: ObservableObject {
     }
     /// A request or computer the list should scroll to: the one a lock screen card button was about.
     @Published var scrollTarget: String?
+    /// The subscription, offered when something needs it (`freeLimitsBlock`); ContentView shows it.
+    @Published var offer: UnlimitedOffer?
     /// Where Apple delivers this iPhone's notifications; nil until Apple hands it over.
     private var pushToken: String?
     /// The push token, while notifications are on.
@@ -275,6 +277,10 @@ final class PhoneModel: ObservableObject {
     }
 
     private func run(_ action: Action, on machine: PairedMachine) async -> OperationResult {
+        if action == .unlock, let blocked = freeLimitsBlock([machine]) {
+            states[machine.machineId] = .finished(blocked)
+            return blocked
+        }
         states[machine.machineId] = .working(action == .unlock ? "Unlocking…" : "Locking…")
         let context = LAContext()
         context.localizedCancelTitle = "Cancel"
@@ -305,6 +311,7 @@ final class PhoneModel: ObservableObject {
             result = OperationResult(success: false, message: Self.describe(error))
         }
         states[machine.machineId] = .finished(result)
+        if result.success, action == .unlock { countUse(of: [machine]) }
         if result.success, action != .status {
             statuses[machine.machineId]?.locked = action == .lock
             await LiveCardController.shared.set(machine.machineId, to: action == .lock ? .locked : .unlocked)
@@ -352,6 +359,7 @@ final class PhoneModel: ObservableObject {
         guard !targets.isEmpty, inFlight == nil, !targets.contains(where: { if case .working = state(for: $0) { true } else { false } }) else {
             return OperationResult(success: false, message: "Nothing to unlock right now.")
         }
+        if let blocked = freeLimitsBlock(targets) { return blocked }
         for machine in targets { states[machine.machineId] = .working("Unlocking…") }
         let context = LAContext()
         context.localizedCancelTitle = "Cancel"
@@ -408,12 +416,33 @@ final class PhoneModel: ObservableObject {
                 await LiveCardController.shared.set(machineId, to: .unlocked)
             }
         }
+        countUse(of: targets.filter { results[$0.machineId]?.success == true })
         let failed = targets.count - results.values.filter(\.success).count
         let result = failed == 0
             ? OperationResult(success: true, message: "Unlocked \(names)")
             : OperationResult(success: false, message: "\(failed) of \(targets.count) didn't unlock")
         haptic(for: result)
         return result
+    }
+
+    // MARK: - Free limits (Store)
+
+    /// Stops an unlock or approval on `targets` that the free version doesn't cover, before Face ID, and offers the
+    /// subscription instead. The computers just ask for the password as usual.
+    private func freeLimitsBlock(_ targets: [PairedMachine]) -> OperationResult? {
+        let store = Store.shared
+        if targets.contains(where: { store.isBeyondFreeComputers($0, among: machines) }) {
+            offer = UnlimitedOffer(reason: .computers)
+            return OperationResult(success: false, message: store.computerLimitMessage)
+        }
+        guard !store.canUse(targets.filter { store.isLimited($0.relay) }.count) else { return nil }
+        offer = UnlimitedOffer(reason: .daily)
+        return OperationResult(success: false, message: "Today's free unlocks and approvals are used up.")
+    }
+
+    private func countUse(of targets: [PairedMachine]) {
+        let store = Store.shared
+        store.recordUse(targets.filter { store.isLimited($0.relay) }.count)
     }
 
     // MARK: - Approvals
@@ -446,6 +475,10 @@ final class PhoneModel: ObservableObject {
     @discardableResult
     func approve(_ waiting: WaitingApproval) async -> OperationResult {
         if case .working = approvalState(for: waiting) { return OperationResult(success: false, message: "Already approving") }
+        if let blocked = freeLimitsBlock([waiting.machine]) {
+            approvalStates[waiting.id] = .finished(blocked)
+            return blocked
+        }
         approvalStates[waiting.id] = .working("Approving…")
         let machine = waiting.machine, approval = waiting.approval
         let context = LAContext()
@@ -463,6 +496,7 @@ final class PhoneModel: ObservableObject {
         } catch {
             result = OperationResult(success: false, message: Self.describe(error))
         }
+        if result.success { countUse(of: [machine]) }
         finish(waiting, with: result, answered: sent)
         return result
     }
@@ -574,6 +608,11 @@ final class PhoneModel: ObservableObject {
     func pair(_ invite: PairingInvite) async {
         pendingInvite = nil
         guard !isPairing else { return }
+        guard Store.shared.canPair(on: invite.relay, replacing: invite.machineId, among: machines) else {
+            pairingResult = OperationResult(success: false, message: Store.shared.computerLimitMessage)
+            offer = UnlimitedOffer(reason: .computers, invite: invite)
+            return
+        }
         isPairing = true
         defer { isPairing = false }
 
@@ -652,6 +691,7 @@ final class PhoneModel: ObservableObject {
             cameFromBackground = false
             // The app shows what's waiting now, so its notifications are done.
             UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+            Task { await Store.shared.refresh() }
             guard !machines.isEmpty, inFlight == nil else { return }
             Task { await refresh() }
         default:
