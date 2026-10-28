@@ -17,6 +17,8 @@ async function apns(request) {
   const url = new URL(request.url);
   pushes.push({ url, headers: request.headers, body: await request.json() });
   const token = url.pathname.split("/").pop();
+  // Tokens starting with "dead" take a while, as Apple sometimes does.
+  if (token.startsWith("dead")) await new Promise((resolve) => setTimeout(resolve, 800));
   if (token.startsWith("dd") && url.host === "api.push.apple.com") {
     return Response.json({ reason: "BadDeviceToken" }, { status: 400 });
   }
@@ -457,6 +459,53 @@ test("with notifications off, the card updates without lighting up the iPhone", 
     const [update] = await pushesFor(token, 1);
     assert.equal(update.body.aps.alert, undefined);
     assert.equal(update.body.aps.sound, undefined);
+  } finally {
+    socket.close(1000);
+  }
+});
+
+test("a card's alerts count toward what one iPhone may get", { timeout: 15000 }, async () => {
+  // Someone who knows an iPhone's notification address registers cards of their own for it: without a card on the
+  // iPhone to light up, each new request comes as a notification.
+  const pushToken = "Ab".repeat(32);
+  const machines = await Promise.all([0, 1, 2].map(async (i) => {
+    const card = newCard(), machineId = crypto.randomUUID();
+    // Either case: APNs takes both, so the address mustn't get a second allowance.
+    await register(card, { computers: [{ id: machineId, name: "Mac", state: "unknown" }], alerts: true,
+      pushToken: i === 0 ? pushToken : pushToken.toLowerCase() });
+    return { card, socket: await connect(machineId) };
+  }));
+  try {
+    for (let i = 0; i < 6; i++) {
+      for (const { card, socket } of machines) {
+        socket.send(JSON.stringify({ card: { cards: [card.id], locked: false, approvals: [{ id: `r${i}`, title: "sudo true", detail: "", expiresIn: 60 }] } }));
+      }
+      await sleep(1100); // a card pushes at most once a second
+    }
+    const sent = pushes.filter((push) => push.url.pathname.toLowerCase() === `/3/device/${pushToken.toLowerCase()}`);
+    assert.equal(sent.length, 10);
+  } finally {
+    for (const { socket } of machines) socket.close(1000);
+  }
+});
+
+test("a card turned off while a push is on its way stays off", { timeout: 10000 }, async () => {
+  const card = newCard();
+  const machineId = crypto.randomUUID();
+  const startToken = "dead" + liveToken().slice(4), pushToken = "b0".repeat(32);
+  await register(card, { computers: [{ id: machineId, name: "Mac", state: "unknown" }], startToken, alerts: true, pushToken });
+  const socket = await connect(machineId);
+  try {
+    socket.send(JSON.stringify({ card: { cards: [card.id], locked: false, approvals: [{ id: "a1", title: "sudo true", detail: "", expiresIn: 60 }] } }));
+    await pushesFor(startToken, 1); // starting the card, which takes Apple a while
+    const off = await relay.dispatchFetch(`http://localhost/v1/card/${card.id}`, { method: "POST", body: JSON.stringify({ secret: card.secret, on: false }) });
+    assert.equal(off.status, 200);
+    await sleep(1200);
+    // The card is gone: the computer's next request isn't kept, and doesn't come as a notification either.
+    socket.send(JSON.stringify({ card: { cards: [card.id], locked: false, approvals: [{ id: "a2", title: "sudo secret", detail: "", expiresIn: 60 }] } }));
+    await sleep(1000);
+    assert.equal(pushes.filter((push) => push.url.pathname === `/3/device/${pushToken}`).length, 0);
+    assert.equal(pushes.filter((push) => push.url.pathname === `/3/device/${startToken}`).length, 1);
   } finally {
     socket.close(1000);
   }

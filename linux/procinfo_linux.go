@@ -14,8 +14,11 @@ func processInfo(pid int) ([]string, map[string]string, error) {
 		return nil, nil, err
 	}
 	args := strings.Split(strings.TrimSuffix(string(cmdline), "\x00"), "\x00")
-	env := map[string]string{}
+	// nil when it can't be read (a setuid process like sudo, in containers without CAP_SYS_PTRACE), so the checker
+	// can tell that apart from an environment without the variable it looks for.
+	var env map[string]string
 	if environ, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid)); err == nil {
+		env = map[string]string{}
 		for _, entry := range bytes.Split(environ, []byte{0}) {
 			if name, value, ok := strings.Cut(string(entry), "="); ok {
 				env[name] = value

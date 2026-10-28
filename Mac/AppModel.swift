@@ -98,8 +98,9 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
     private var dialogTimer: Timer?
     private var sleepAssertion: IOPMAssertionID?
-    /// The version of the checker sudo runs; read at launch and after changing sudo approvals.
+    /// The version of the checker sudo runs, read again whenever the installed file changes (also from Terminal).
     private var installedCheckerVersion = AppModel.readInstalledCheckerVersion()
+    private var installedCheckerDate = AppModel.installedCheckerDate
     private var isBusy = false
     /// What the relay last got for the lock screen cards; nil sends it again.
     private var sentCard: RelayCard?
@@ -211,6 +212,10 @@ final class AppModel: ObservableObject {
         if loginItem != launchAtLogin { launchAtLogin = loginItem }
         if let expires = pairingExpiresAt, expires < Date() { cancelPairing() }
         let trusted = devices.filter { trustedDeviceIds?.contains($0.id) ?? true }
+        if Self.installedCheckerDate != installedCheckerDate {
+            installedCheckerDate = Self.installedCheckerDate
+            installedCheckerVersion = Self.readInstalledCheckerVersion()
+        }
         let sudo = Self.readSudoApprovals(devices: trusted, checkerVersion: installedCheckerVersion)
         if sudo != sudoApprovals { sudoApprovals = sudo }
         updateSleepAssertion()
@@ -223,16 +228,20 @@ final class AppModel: ObservableObject {
         else { return hasLine ? .lineLeftOver : .off }
         // Without the line sudo never asks the checker, whatever else is installed.
         guard hasLine else { return .off }
-        if let missing = devices.first(where: { device in !approvers.devices.contains { $0.id == device.id } }) {
+        if let missing = devices.first(where: { device in !approvers.devices.contains { $0.isDevice(device.id) } }) {
             return .outdated(missing.name)
         }
-        if let removed = approvers.devices.first(where: { approver in !devices.contains { $0.id == approver.id } }) {
+        if let removed = approvers.devices.first(where: { approver in !devices.contains { approver.isDevice($0.id) } }) {
             return .stale(removed.name)
         }
         if let checkerVersion, checkerVersion != Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
             return .otherVersion
         }
         return .on
+    }
+
+    private static var installedCheckerDate: Date? {
+        (try? FileManager.default.attributesOfItem(atPath: installedChecker))?[.modificationDate] as? Date
     }
 
     private static func readInstalledCheckerVersion() -> String? {
@@ -258,6 +267,14 @@ final class AppModel: ObservableObject {
         return text.split(separator: "\n").contains { !$0.hasPrefix("#") && $0.contains("pam_\(Brand.id).so") }
     }
 
+    /// sudo_local has this version's line, wherever it is, so enable-sudo leaves /etc/pam.d alone (enableMacPAM in
+    /// linux/sudo_setup.go). Otherwise turning on has to change it, which only Terminal can.
+    private static var sudoLocalHasCurrentLine: Bool {
+        guard let text = try? String(contentsOfFile: sudoLocal, encoding: .utf8) else { return false }
+        let line = ["auth", "sufficient", "/usr/local/lib/pam/pam_\(Brand.id).so.2", installedChecker]
+        return text.split(separator: "\n").contains { $0.split(whereSeparator: \.isWhitespace).map(String.init) == line }
+    }
+
     /// The checker, PAM module and pam-check this app carries (scripts/build-mac-helpers.sh).
     private static let helpers = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers")
     /// Where enable-sudo installs the checker (linux/checker.go), root-owned.
@@ -278,10 +295,10 @@ final class AppModel: ObservableObject {
         let script: String
         let reason: String
         if on {
-            let inTerminal = !Self.sudoLocalHasLine
+            let inTerminal = !Self.sudoLocalHasCurrentLine
             guard let team = Self.teamIdentifier else { return "This copy of \(Brand.name) isn't signed, so it can't set up sudo." }
             // Pins the exact helpers this app was signed with: another program could swap in older ones, also signed by
-            // the team, but not without breaking this app's own signature, which is checked first.
+            // the team, but not without changing the app on disk, which then no longer matches the one running.
             guard let hashes = Self.helperHashes else { return "\(Brand.name)'s files were changed. Download it again." }
             let approvers: Approvers
             do {
@@ -301,11 +318,13 @@ final class AppModel: ObservableObject {
                     + "codesign --verify --strict --arch \"$(uname -m)\" -R=\(shellQuoted("cdhash H\"\(hashes[name] ?? "")\"")) \(file)"
             }
             // Any program running as you can change files in this app, so root runs root-owned copies, and only once
-            // they're signed by the same team as this app. The iPhones come from here rather than over the control
-            // socket, which another program could have taken over, and the password prompt names them.
+            // they're signed by the same team as this app. They go in /tmp, which is sticky: in your own temporary
+            // folder another program could rename root's folder and put its own in its place. The iPhones come from
+            // here rather than over the control socket, which another program could have taken over, and the password
+            // prompt names them.
             script = """
                 set -e
-                dir=$(mktemp -d)
+                dir=$(mktemp -d /private/tmp/\(Brand.id).XXXXXX)
                 trap 'rm -rf "$dir"' EXIT
                 cp \(copies.joined(separator: " ")) "$dir"
                 \(checks.joined(separator: "\n"))
@@ -328,7 +347,6 @@ final class AppModel: ObservableObject {
             reason = "to stop sudo from waiting for your iPhone"
         }
         let error = await Self.runAsAdministrator(script, prompt: "\(Brand.name) needs an administrator's password \(reason).")
-        installedCheckerVersion = Self.readInstalledCheckerVersion()
         refreshStatus()
         if error == nil {
             note(on ? "sudo approvals are on" : "sudo approvals are off")
@@ -379,11 +397,7 @@ final class AppModel: ObservableObject {
     /// The code hashes of the helpers in this app (for the architecture this Mac runs), by file name, once this app's
     /// signature (which covers them) checks out. nil if it doesn't.
     private static var helperHashes: [String: String]? {
-        var staticCode: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(Bundle.main.bundleURL as CFURL, [], &staticCode) == errSecSuccess, let staticCode,
-              SecStaticCodeCheckValidity(staticCode, SecCSFlags(rawValue: kSecCSCheckNestedCode | kSecCSStrictValidate), nil) == errSecSuccess,
-              let names = try? FileManager.default.contentsOfDirectory(atPath: helpers.path)
-        else { return nil }
+        guard isIntact, let names = try? FileManager.default.contentsOfDirectory(atPath: helpers.path) else { return nil }
         var hashes: [String: String] = [:]
         for name in names {
             var helper: SecStaticCode?
@@ -394,7 +408,21 @@ final class AppModel: ObservableObject {
             else { return nil }
             hashes[name] = hash.map { String(format: "%02x", $0) }.joined()
         }
-        return hashes
+        // Again, so helpers swapped while their hashes were read don't count.
+        return isIntact ? hashes : nil
+    }
+
+    /// This app's signature, which covers the helpers, checks out, and the bundle on disk is the one running. Another
+    /// program could replace the bundle with a copy re-signed around older helpers; checking only the files would pass
+    /// that. A new SecCode each time: an old one keeps saying yes after the files changed.
+    private static var isIntact: Bool {
+        var code: SecCode?
+        var staticCode: SecStaticCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
+              SecCodeCheckValidity(code, [], nil) == errSecSuccess, // errSecCSStaticCodeChanged once it was replaced
+              SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode
+        else { return false }
+        return SecStaticCodeCheckValidity(staticCode, SecCSFlags(rawValue: kSecCSCheckNestedCode | kSecCSStrictValidate), nil) == errSecSuccess
     }
 
     /// The team that signed this app; the helpers have to be signed by it too.

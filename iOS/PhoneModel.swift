@@ -654,6 +654,8 @@ final class PhoneModel: ObservableObject {
         states[machine.machineId] = nil
         statuses[machine.machineId] = nil
         save()
+        // The card drops it, on the relay too (or goes, with the last computer).
+        Task { await refresh() }
     }
 
     // MARK: - Notifications

@@ -80,8 +80,9 @@ func runChecker(args []string) int {
 	if err != nil {
 		logger.Printf("couldn't read the requesting process: %v", err)
 	}
-	executable, _ := executableOf(parent)
-	args = withoutEmulator(executable, args)
+	if executable, _ := executableOf(parent); underEmulator(executable) {
+		args = nil
+	}
 	if !*allowRemote && (isRemote(env) || remoteAncestor(parent)) {
 		return 1
 	}
@@ -92,6 +93,12 @@ func runChecker(args []string) int {
 	if err != nil {
 		tell("%v", err)
 		return 1
+	}
+	if strings.HasPrefix(service, "sudo") {
+		if err := checkSudoProgram(args, env); err != nil {
+			tell("%v; type your password.", err)
+			return 1
+		}
 	}
 	approval := Approval{ID: randomToken(12), Nonce: randomToken(32), Title: title, Detail: detail, ExpiresIn: int(*wait / time.Second)}
 
@@ -215,7 +222,8 @@ func verifyApproval(approvers *Approvers, approval Approval, message checkerMess
 		return false, "this iPhone isn't allowed to approve here yet. " + enableSudoHint()
 	}
 	key, err := parsePublicKey(device.PublicKey)
-	if err != nil || !validSignature(key, approvalMessage(approvers.MachineID, device.ID, approval), message.Signature) {
+	// The device id itself comes from the agent; approvers.json only has its hash, which matched.
+	if err != nil || !validSignature(key, approvalMessage(approvers.MachineID, message.DeviceID, approval), message.Signature) {
 		return false, "the computer rejected this iPhone's signature."
 	}
 	return true, ""
@@ -229,8 +237,15 @@ func enableSudoHint() string {
 }
 
 func (a *Approvers) find(id string) *Approver {
+	if id == "" {
+		return nil
+	}
+	return a.findKey(deviceIDHash(id))
+}
+
+func (a *Approvers) findKey(key string) *Approver {
 	for i := range a.Devices {
-		if a.Devices[i].ID == id {
+		if a.Devices[i].key() == key {
 			return &a.Devices[i]
 		}
 	}
@@ -284,11 +299,10 @@ func checkFolders(dir string) error {
 		if err != nil {
 			return err
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) {
+		if !ownedByRoot(info) {
 			return fmt.Errorf("%s must belong to root", dir)
 		}
-		if info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
+		if writableByOthers(info) {
 			return fmt.Errorf("%s must not be writable by others", dir)
 		}
 		if dir == filepath.Dir(dir) {
@@ -364,39 +378,78 @@ func remoteAncestor(pid int) bool {
 // requesterInfo reads the requesting process's arguments and environment; tests replace it.
 var requesterInfo = processInfo
 
-// withoutEmulator drops the interpreter that binfmt emulation (Rosetta in Docker on a Mac, qemu-user) puts in
-// front of the arguments: [/run/rosetta/rosetta, /usr/sbin/sudo, sudo, -k, …]. It goes by the program the process
-// runs, never by the first argument, which whoever starts sudo chooses.
-func withoutEmulator(executable string, args []string) []string {
-	if len(args) >= 3 {
-		if base := filepath.Base(executable); base == "rosetta" || strings.HasPrefix(base, "qemu-") {
-			return args[2:]
-		}
-	}
-	return args
+// underEmulator: sudo runs through binfmt emulation (Rosetta in Docker on a Mac, qemu-user). Its arguments then read
+// differently depending on whether this checker is emulated too ([sudo, -k, …]) or not ([/run/rosetta/rosetta,
+// /usr/sbin/sudo, sudo, -k, …], or without sudo's own first argument for qemu without preserve-argv0), and whoever
+// starts sudo can make one look like the other. So such a request gets the password prompt. It goes by the program
+// the process runs, never by the first argument, which whoever starts sudo chooses.
+func underEmulator(executable string) bool {
+	base := filepath.Base(executable)
+	return base == "rosetta" || strings.HasPrefix(base, "qemu-")
 }
 
 // sudoWithoutPrompt: `sudo -S` (password from stdin, as scripts use it) and `sudo -n` (never prompt) shouldn't
 // wait for the iPhone.
 func sudoWithoutPrompt(args []string) bool {
-	if len(args) < 2 {
-		return false
+	return parseSudo(args).noPrompt
+}
+
+// sudoCommandLine is what the checker needs from sudo's arguments.
+type sudoCommandLine struct {
+	noPrompt bool // -S or -n
+	shell    bool // -s: runs $SHELL
+	login    bool // -i: root's own login shell
+	edit     bool // -e, sudoedit: edits copies as you
+	// -E, or --preserve-env without a list: passes your whole environment on to the command.
+	preserveEnv bool
+	// From the command on, after any VAR=value settings.
+	command []string
+}
+
+func parseSudo(args []string) sudoCommandLine {
+	var line sudoCommandLine
+	if len(args) == 0 {
+		return line
 	}
-	for i := 1; i < len(args); i++ {
+	line.edit = filepath.Base(args[0]) == "sudoedit"
+	i := 1
+options:
+	for ; i < len(args); i++ {
 		arg := args[i]
 		switch {
 		case arg == "--":
-			return false
-		case arg == "--stdin" || arg == "--non-interactive":
-			return true
+			i++
+			break options
 		case strings.HasPrefix(arg, "--"):
-			if !strings.Contains(arg, "=") && sudoLongOptionTakesValue(arg) {
+			name, _, hasValue := strings.Cut(arg, "=")
+			switch name {
+			case "--stdin", "--non-interactive":
+				line.noPrompt = true
+			case "--shell":
+				line.shell = true
+			case "--login":
+				line.login = true
+			case "--edit":
+				line.edit = true
+			case "--preserve-env":
+				line.preserveEnv = line.preserveEnv || !hasValue
+			}
+			if !hasValue && sudoLongOptionTakesValue(name) {
 				i++
 			}
 		case strings.HasPrefix(arg, "-") && len(arg) > 1:
 			for j, flag := range arg[1:] {
-				if flag == 'S' || flag == 'n' {
-					return true
+				switch flag {
+				case 'S', 'n':
+					line.noPrompt = true
+				case 's':
+					line.shell = true
+				case 'i':
+					line.login = true
+				case 'e':
+					line.edit = true
+				case 'E':
+					line.preserveEnv = true
 				}
 				// Options with a value take the rest of the word, or the next argument.
 				if strings.ContainsRune("CDghpRrTtUu", flag) {
@@ -407,10 +460,149 @@ func sudoWithoutPrompt(args []string) bool {
 				}
 			}
 		default:
-			return false // the command starts here
+			break options // the command starts here
 		}
 	}
-	return false
+	// sudo takes leading words with an = as environment variables for the command.
+	for i < len(args) && strings.IndexByte(args[i], '=') > 0 {
+		i++
+	}
+	if i < len(args) {
+		line.command = args[i:]
+	}
+	return line
+}
+
+// checkSudoProgram makes sure the program sudo runs as root is the one the iPhone names. sudo looks a name up in
+// the PATH it was started with (unless sudoers sets secure_path, which macOS and Arch don't), so otherwise a
+// program running as you could put its own `ls` in a folder you can write to, such as Homebrew's, or start sudo
+// with such a PATH, and get "sudo ls -la" approved. So the program, and every folder on the way to it, must be
+// root's. What's left is a race: removing that `ls` between sudo's lookup and this one, and putting it back after.
+func checkSudoProgram(args []string, env map[string]string) error {
+	line := parseSudo(args)
+	switch {
+	case line.edit:
+		return nil // the editor runs as you, on a copy
+	case line.preserveEnv:
+		return errors.New("sudo -E passes your whole environment on, which can change what the command does")
+	case line.login:
+		return nil // root's own shell, with root's PATH
+	}
+	if line.shell {
+		// Without SHELL sudo runs your shell from the user database, which only root can change.
+		if env == nil {
+			return errors.New("couldn't tell which shell sudo -s runs")
+		}
+		if shell := env["SHELL"]; shell != "" {
+			if err := checkProgram(shell); err != nil {
+				return err
+			}
+		}
+	}
+	if len(line.command) == 0 {
+		return nil
+	}
+	program, err := lookPath(line.command[0], env)
+	if err != nil {
+		return err
+	}
+	return checkProgram(program)
+}
+
+// lookPath finds a command the way sudo does: a word with a slash is the program's path, any other is looked up in
+// sudo's PATH. With secure_path set, sudo uses that instead, which only has root's folders.
+func lookPath(name string, env map[string]string) (string, error) {
+	if strings.Contains(name, "/") {
+		if !filepath.IsAbs(name) {
+			return "", fmt.Errorf("couldn't tell which program %s is", name)
+		}
+		return name, nil
+	}
+	path, ok := env["PATH"]
+	if !ok {
+		return "", fmt.Errorf("couldn't tell which program %s is", name)
+	}
+	for _, dir := range filepath.SplitList(path) {
+		if !filepath.IsAbs(dir) {
+			return "", fmt.Errorf("couldn't tell which program %s is (PATH has %q)", name, dir)
+		}
+		program := filepath.Join(dir, name)
+		if info, err := os.Stat(program); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return program, nil
+		}
+	}
+	return "", fmt.Errorf("couldn't find %s", name)
+}
+
+// checkProgram walks path the way running it does, one name at a time and through every symbolic link, and checks
+// that each folder, link and the program itself belongs to root (or whoever runs this) and that nobody else can
+// change it: no folder others can write to, except sticky ones like /tmp, where they can't rename root's entries.
+// Otherwise "sudo would run …" says which program another one running as you could swap.
+func checkProgram(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("couldn't tell which program %s is", path)
+	}
+	unsafe := fmt.Errorf("sudo would run %s, which programs running as you can change", path)
+	if info, err := os.Lstat("/"); err != nil || !ownedByRoot(info) || writableByOthers(info) {
+		return unsafe
+	}
+	dir, names := "/", strings.Split(path, "/")
+	for links := 0; len(names) > 0; {
+		name := names[0]
+		names = names[1:]
+		if !isName(name) {
+			continue
+		}
+		next := filepath.Join(dir, name)
+		info, err := os.Lstat(next)
+		if err != nil || !ownedByRoot(info) {
+			return unsafe
+		}
+		switch {
+		case info.Mode()&os.ModeSymlink != 0:
+			links++
+			target, err := os.Readlink(next)
+			if err != nil || links > 40 {
+				return unsafe
+			}
+			if filepath.IsAbs(target) {
+				dir = "/"
+			}
+			names = append(strings.Split(target, "/"), names...)
+		case info.IsDir():
+			if writableByOthers(info) {
+				return unsafe
+			}
+			dir = next
+		default:
+			// The program: a file nobody else can change, with nothing after it.
+			if !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
+				return unsafe
+			}
+			for _, name := range names {
+				if isName(name) {
+					return unsafe
+				}
+			}
+			return nil
+		}
+	}
+	return unsafe // a folder, not a program
+}
+
+func isName(part string) bool {
+	return part != "" && part != "."
+}
+
+// ownedByRoot: or by whoever runs this (root, in real use; the tests run as you).
+func ownedByRoot(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && (stat.Uid == 0 || int(stat.Uid) == os.Geteuid())
+}
+
+// writableByOthers: others can swap what's in the folder, as it isn't sticky.
+func writableByOthers(folder os.FileInfo) bool {
+	return folder.Mode().Perm()&0o022 != 0 && folder.Mode()&os.ModeSticky == 0
 }
 
 func sudoLongOptionTakesValue(option string) bool {
@@ -452,8 +644,7 @@ func describeRequest(service, username, tty string, args []string) (title, detai
 		}
 		for _, arg := range args[1:] {
 			if arg == "" || !utf8.ValidString(arg) || strings.IndexFunc(arg, needsQuotes) >= 0 {
-				// strconv.Quote leaves the replacement character as it is, and oneLine would make it a space.
-				arg = strings.ReplaceAll(strconv.Quote(arg), "\uFFFD", `\ufffd`)
+				arg = quote(arg)
 			}
 			words = append(words, arg)
 		}
@@ -476,10 +667,34 @@ func describeRequest(service, username, tty string, args []string) (title, detai
 }
 
 // needsQuotes: characters that would make an argument look like something else, from spaces to invisible ones
-// such as right-to-left overrides and zero-width spaces, and the replacement character, which oneLine turns into a
-// space. strconv.Quote shows those as escapes like \u202e.
+// such as right-to-left overrides and zero-width spaces, blank-looking letters, and the replacement character,
+// which oneLine turns into a space. quote shows those as escapes like \u202e.
 func needsQuotes(r rune) bool {
-	return r <= ' ' || strings.ContainsRune(`'"\`, r) || unicode.IsSpace(r) || !unicode.IsGraphic(r) || r == utf8.RuneError
+	return r <= ' ' || strings.ContainsRune(`'"\`, r) || unicode.IsSpace(r) || !unicode.IsGraphic(r) || looksBlank(r) ||
+		r == utf8.RuneError
+}
+
+// looksBlank: characters that count as letters or symbols but show as nothing or a space, like the Hangul fillers,
+// the combining grapheme joiner and the Braille blank, which strconv.Quote leaves as they are.
+func looksBlank(r rune) bool {
+	return unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r) || unicode.Is(unicode.Variation_Selector, r) || r == '\u2800'
+}
+
+// quote is strconv.Quote, which escapes control and invisible characters, plus escapes for the ones it leaves: the
+// blank-looking ones and the replacement character, which oneLine would make a space.
+func quote(arg string) string {
+	var out strings.Builder
+	for _, r := range strconv.Quote(arg) {
+		switch {
+		case r > 0xffff && looksBlank(r):
+			fmt.Fprintf(&out, `\U%08x`, r)
+		case looksBlank(r) || r == utf8.RuneError:
+			fmt.Fprintf(&out, `\u%04x`, r)
+		default:
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }
 
 // oneLine replaces control characters and line separators with spaces and shortens to limit characters.

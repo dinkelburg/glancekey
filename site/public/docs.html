@@ -82,7 +82,7 @@ glancekey-agent status         # the connection, the lock screen and your paired
 
     <h2 id="pairing">Pairing</h2>
     <p>On the Mac click <strong>Pair iPhone…</strong>; on Linux run <code>glancekey-agent pair</code>. Tap <strong>Scan QR code</strong> in GlanceKey and point it at the code, or scan it with your iPhone's Camera app, which opens GlanceKey. Pairing creates a key on your iPhone for that computer, which only works after Face ID recognizes you. There's no account to make.</p>
-    <p>Pair each computer once. To add another computer, tap <strong>Add another computer</strong> in the app. To remove one, use its <strong>…</strong> menu in the app, and remove the iPhone on the computer too (the Mac menu, or <code>glancekey-agent unpair &lt;name&gt;</code>).</p>
+    <p>Pair each computer once. To add another computer, tap <strong>+</strong> in the app. To remove one, tap it in the app, then <strong>Remove</strong>, and remove the iPhone on the computer too (the Mac menu, or <code>glancekey-agent unpair &lt;name&gt;</code>).</p>
 
     <h2 id="using">Unlocking</h2>
     <p>Tap <strong>Unlock</strong> next to the computer, on the Lock Screen card or in GlanceKey, and look at your iPhone. With several locked, <strong>Unlock all</strong> in GlanceKey unlocks them with one Face ID. Tap a computer in GlanceKey to lock it or remove it.</p>
@@ -94,7 +94,7 @@ glancekey-agent status         # the connection, the lock screen and your paired
     <pre><code>$ sudo pacman -Syu
 GlanceKey: approve on your iPhone, or press Enter to type your password (it waits 30 seconds).
 GlanceKey: approved on iPhone.</code></pre>
-    <p>Your iPhone shows the exact command. Tap <strong>Approve</strong> and look at your phone. If you tap <strong>Deny</strong>, press Enter in the terminal, don't answer in time, or the iPhone can't be reached, sudo asks for your password as usual. Over SSH it asks for your password straight away.</p>
+    <p>Your iPhone shows the exact command. Tap <strong>Approve</strong> and look at your phone. If you tap <strong>Deny</strong>, press Enter in the terminal, don't answer in time, or the iPhone can't be reached, sudo asks for your password as usual. Over SSH it asks for your password straight away, and so it does for a program that another program running as you could swap, such as one from Homebrew's folder, and for <code>sudo -E</code>.</p>
     <p>On the Lock Screen card, <strong>Approve</strong> approves straight away when the card shows the whole command. A longer command opens in GlanceKey, where you tap <strong>Approve</strong> after reading it. polkit doesn't say what its admin dialogs are for, so for those your iPhone only shows that a password dialog is waiting; check the dialog on your screen.</p>
     <p>It waits 30 seconds unless you choose otherwise: 1, 5 or 15 minutes, or until you answer. Change it on the computer's page in the iPhone app, in the Mac menu (<strong>Wait for iPhone</strong>), or on Linux with <code>glancekey-agent set-wait 5m</code>.</p>
     <h3>On a Mac</h3>
@@ -132,7 +132,7 @@ systemctl --user restart glancekey-agent</code></pre>
     <h2 id="updating">Updating and removing</h2>
     <h3>Mac</h3>
     <p>Update by downloading GlanceKey again and replacing it, or with <code>brew upgrade --cask glancekey</code>. If you use sudo approvals, click <strong>Update…</strong> when the menu asks for it.</p>
-    <p>To remove it: click <strong>Turn off…</strong> for sudo approvals, quit GlanceKey and delete it (or <code>brew uninstall --cask glancekey</code>), then remove the computer in the iPhone app.</p>
+    <p>To remove it: click <strong>Turn off…</strong> for sudo approvals, then <strong>Remove the line in Terminal…</strong>, quit GlanceKey and delete it (or <code>brew uninstall --cask glancekey</code>), then remove the computer in the iPhone app.</p>
     <h3>Linux</h3>
     <p>Update by running the install command again, or with <code>brew upgrade glancekey-agent</code> followed by <code>glancekey-agent install-service</code>. If you use sudo approvals, run <code>sudo "$(command -v glancekey-agent)" enable-sudo</code> again.</p>
     <p>To remove it:</p>

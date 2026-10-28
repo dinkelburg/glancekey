@@ -68,14 +68,17 @@ func newApprovalSetup(t *testing.T) *approvalSetup {
 	t.Setenv("PAM_SERVICE", "sudo")
 	// The checker's parent here is the test runner, not sudo.
 	t.Cleanup(func() { requesterInfo = processInfo })
-	requesterInfo = func(int) ([]string, map[string]string, error) { return []string{"sudo", "id"}, nil, nil }
+	requesterInfo = func(int) ([]string, map[string]string, error) {
+		return []string{"sudo", "id"}, map[string]string{"PATH": "/usr/bin:/bin"}, nil
+	}
 	t.Setenv("PAM_TTY", "/dev/pts/7")
 	t.Setenv("PAM_TYPE", "auth")
 	return setup
 }
 
+// writeApprovers saves approvers.json as enable-sudo does, with the device ids hashed.
 func (s *approvalSetup) writeApprovers(t *testing.T, approvers *Approvers) {
-	data, _ := json.Marshal(approvers)
+	data, _ := json.Marshal(approvers.hashed())
 	if err := os.WriteFile(s.approvers, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -388,6 +391,13 @@ func TestDescribeRequest(t *testing.T) {
 	if title, _, _ := describeRequest("sudo", "ruben", "", []string{"sudo", "cp", "a\xffb", "a\ufffdb", "/etc/x"}); title != `sudo cp "a\xffb" "a\ufffdb" /etc/x` {
 		t.Fatalf("invalid UTF-8: %q", title)
 	}
+	// Letters and symbols that look blank: the Braille blank, a Hangul filler, the combining grapheme joiner.
+	if title, _, _ := describeRequest("sudo", "ruben", "", []string{"sudo", "ls\u2800-la", "a\u3164b", "c\u034fd"}); title != `sudo "ls\u2800-la" "a\u3164b" "c\u034fd"` {
+		t.Fatalf("blank-looking characters: %q", title)
+	}
+	if title, _, _ := describeRequest("sudo", "ruben", "", []string{"sudo", "k\U000E0100l"}); title != `sudo "k\U000e0100l"` {
+		t.Fatalf("a variation selector above U+FFFF: %q", title)
+	}
 	if got := oneLine("a\nb c", 10); got != "a b c" {
 		t.Fatalf("oneLine: %q", got)
 	}
@@ -491,24 +501,15 @@ func TestVendorPAMOverride(t *testing.T) {
 	}
 }
 
-func TestWithoutEmulator(t *testing.T) {
-	rosetta := []string{"/run/rosetta/rosetta", "/usr/sbin/sudo", "sudo", "-k", "-S", "id"}
-	args := withoutEmulator("/run/rosetta/rosetta", rosetta)
-	if !sudoWithoutPrompt(args) {
-		t.Fatalf("-S not seen in %q", args)
+// Emulated sudo gets the password prompt: its arguments read differently depending on who reads them. It goes by the
+// program the process runs; whoever starts sudo picks its first argument, so a name like an emulator's changes nothing.
+func TestUnderEmulator(t *testing.T) {
+	for executable, want := range map[string]bool{"/run/rosetta/rosetta": true, "/usr/bin/qemu-x86_64": true, "/usr/bin/sudo": false} {
+		if underEmulator(executable) != want {
+			t.Errorf("%s", executable)
+		}
 	}
-	if title, _, _ := describeRequest("sudo", "ruben", "", args); title != "sudo -k -S id" {
-		t.Fatalf("title %q", title)
-	}
-	if got := withoutEmulator("/usr/bin/sudo", []string{"sudo", "id"}); len(got) != 2 {
-		t.Fatalf("native args changed: %q", got)
-	}
-	// Whoever starts sudo picks its first argument, so a name like an emulator's changes nothing.
-	sneaky := []string{"qemu-x", "/tmp/evil", "x", "pacman", "-Syu"}
-	if got := withoutEmulator("/usr/bin/sudo", sneaky); len(got) != len(sneaky) {
-		t.Fatalf("dropped arguments by their name: %q", got)
-	}
-	if _, _, err := describeRequest("sudo", "ruben", "", withoutEmulator("/usr/bin/sudo", sneaky)); err != errUnknownCommand {
+	if _, _, err := describeRequest("sudo", "ruben", "", []string{"qemu-x", "/tmp/evil", "x", "pacman", "-Syu"}); err != errUnknownCommand {
 		t.Fatalf("qemu-named first argument: %v", err)
 	}
 }
@@ -546,7 +547,7 @@ func TestCheckerExitsWithParent(t *testing.T) {
 func TestDescribeApproverChanges(t *testing.T) {
 	phone := Approver{ID: "a", Name: "Ruben's iPhone", PublicKey: []byte{1}}
 	old := Approver{ID: "b", Name: "Old iPhone", PublicKey: []byte{2}}
-	previous := &Approvers{MachineName: "omarchy", Devices: []Approver{phone, old}}
+	previous := (&Approvers{MachineName: "omarchy", Devices: []Approver{phone, old}}).hashed() // as approvers.json has it
 
 	// A second "Ruben's iPhone" is new; so is a known id with another key.
 	impostor := Approver{ID: "c", Name: "Ruben's iPhone", PublicKey: []byte{3}}
@@ -581,5 +582,144 @@ func TestAddPAMLineKeepsAFileThatHasIt(t *testing.T) {
 	}
 	if fresh := "# sudo_local: local config file which survives system update and is included for sudo\n"; addPAMLine(fresh, line) == fresh {
 		t.Fatal("didn't add the line")
+	}
+	// enableMacPAM leaves the line where you put it, such as below pam_tid.so, instead of moving it up (which the
+	// administrator prompt can't).
+	below := "auth       sufficient     pam_tid.so\n" + pamMarker + "\n" + line + "\n"
+	if !hasPAMLine(below, "auth sufficient "+macModulePath+" "+checkerInstallPath) || hasPAMLine(below, "auth sufficient pam_tid.so.2") {
+		t.Fatal("hasPAMLine")
+	}
+}
+
+// approvers.json is readable by everyone, and a device id is all a hello needs, so it only keeps their hashes.
+func TestApproversFileKeepsOnlyHashes(t *testing.T) {
+	if got := deviceIDHash("abc"); got != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" {
+		t.Fatalf("deviceIDHash: %s", got)
+	}
+	approvers := &Approvers{MachineID: "m", MachineName: "n", Devices: []Approver{{ID: "device-1", Name: "iPhone"}}}
+	data, _ := json.Marshal(approvers.hashed())
+	if strings.Contains(string(data), "device-1") || approvers.Devices[0].ID != "device-1" {
+		t.Fatalf("hashed: %s", data)
+	}
+	var saved Approvers
+	json.Unmarshal(data, &saved)
+	// Found by the id itself, in the new file and in one from before 1.0.3.
+	for _, list := range []*Approvers{&saved, approvers} {
+		if list.find("device-1") == nil || list.find("device-2") != nil || list.find("") != nil {
+			t.Fatalf("find in %+v", list.Devices)
+		}
+	}
+}
+
+func TestCheckSudoProgram(t *testing.T) {
+	root := t.TempDir()
+	safe, open := filepath.Join(root, "bin"), filepath.Join(root, "open")
+	os.Mkdir(safe, 0o755)
+	os.Mkdir(open, 0o755)
+	os.Chmod(open, 0o777) // anyone can swap what's in it
+	for _, dir := range []string{safe, open} {
+		os.WriteFile(filepath.Join(dir, "tool"), []byte("#!/bin/sh\n"), 0o755)
+	}
+	os.WriteFile(filepath.Join(safe, "loose"), []byte("#!/bin/sh\n"), 0o755)
+	os.Chmod(filepath.Join(safe, "loose"), 0o777)
+	os.WriteFile(filepath.Join(safe, "data"), nil, 0o644)
+	os.Symlink(filepath.Join(open, "tool"), filepath.Join(safe, "linked"))
+	os.Symlink("tool", filepath.Join(safe, "alias"))
+
+	env := map[string]string{"PATH": safe, "SHELL": filepath.Join(safe, "tool")}
+	for args, want := range map[string]bool{
+		"sudo tool":                    true,
+		"sudo -u nobody tool -x":       true,
+		"sudo FOO=bar tool":            true,
+		"sudo -- tool":                 true,
+		"sudo alias":                   true, // a link next to it, in the same safe folder
+		"sudo " + safe + "/tool":       true,
+		"sudo --preserve-env=FOO tool": true,
+		"sudo -i":                      true,
+		"sudo -v":                      true,
+		"sudo -s":                      true,
+		"sudoedit /etc/hosts":          true,
+		"sudo -e /etc/hosts":           true,
+		"sudo " + open + "/tool":       false, // in a folder anyone can write to
+		"sudo loose":                   false, // writable by anyone
+		"sudo linked":                  false, // a link into the open folder
+		"sudo data":                    false, // not a program, so sudo wouldn't find it
+		"sudo missing":                 false,
+		"sudo ./tool":                  false,
+		"sudo -E tool":                 false,
+		"sudo --preserve-env tool":     false,
+		"sudo -Eu nobody tool":         false,
+	} {
+		if err := checkSudoProgram(strings.Fields(args), env); (err == nil) != want {
+			t.Errorf("%s: %v", args, err)
+		}
+	}
+	// The first match in PATH is the one sudo runs: one in a folder others can write to comes first.
+	if err := checkSudoProgram([]string{"sudo", "tool"}, map[string]string{"PATH": open + ":" + safe}); err == nil ||
+		!strings.Contains(err.Error(), open) {
+		t.Errorf("open folder first: %v", err)
+	}
+	for _, path := range []string{"", ".:" + safe, "bin:" + safe} {
+		env := map[string]string{"PATH": path}
+		if path == "" {
+			delete(env, "PATH")
+		}
+		if err := checkSudoProgram([]string{"sudo", "tool"}, env); err == nil {
+			t.Errorf("PATH %q accepted", path)
+		}
+	}
+	if err := checkSudoProgram([]string{"sudo", "-s"}, map[string]string{"SHELL": open + "/tool"}); err == nil {
+		t.Error("a shell others can change accepted")
+	}
+	// sudo -s runs SHELL, so an environment the checker couldn't read (nil) isn't enough; one without SHELL is.
+	if checkSudoProgram([]string{"sudo", "-s"}, nil) == nil || checkSudoProgram([]string{"sudo", "-s"}, map[string]string{}) != nil {
+		t.Error("sudo -s without SHELL")
+	}
+	// Links on the way count like the program: one in a safe folder to a safe folder, but not one in a folder others
+	// can write to.
+	os.Symlink(safe, filepath.Join(safe, "here"))
+	os.Symlink(safe, filepath.Join(open, "there"))
+	for path, want := range map[string]bool{safe + "/here/tool": true, safe + "/here/../bin/tool": true, open + "/there/tool": false, safe: false} {
+		if err := checkProgram(path); (err == nil) != want {
+			t.Errorf("%s: %v", path, err)
+		}
+	}
+	if os.Geteuid() == 0 {
+		// In a sticky folder others can't swap root's entries, but they can swap their own links.
+		sticky := filepath.Join(root, "sticky")
+		os.Mkdir(sticky, 0o755)
+		os.Chmod(sticky, 0o777|os.ModeSticky)
+		os.Symlink(filepath.Join(safe, "tool"), filepath.Join(sticky, "root-link"))
+		os.Symlink(filepath.Join(safe, "tool"), filepath.Join(sticky, "their-link"))
+		os.Lchown(filepath.Join(sticky, "their-link"), 65534, 65534)
+		if checkProgram(filepath.Join(sticky, "root-link")) != nil || checkProgram(filepath.Join(sticky, "their-link")) == nil {
+			t.Error("links in a sticky folder")
+		}
+	}
+	// What a real system has: root's own programs.
+	if err := checkSudoProgram([]string{"sudo", "id"}, map[string]string{"PATH": "/usr/bin:/bin"}); err != nil {
+		t.Errorf("id: %v", err)
+	}
+}
+
+// Debian's `sudo -i` has its own PAM config, sudo-i; a system without it (or without polkit) is left as it is.
+func TestLinuxPAMServices(t *testing.T) {
+	dir := t.TempDir()
+	defer func(dir string, vendor []string) { pamDir, vendorPAMDirs = dir, vendor }(pamDir, vendorPAMDirs)
+	pamDir, vendorPAMDirs = dir, []string{filepath.Join(dir, "vendor")}
+	for _, service := range []string{"sudo", "sudo-i"} {
+		os.WriteFile(filepath.Join(dir, service), []byte("#%PAM-1.0\n@include common-auth\n"), 0o644)
+	}
+	line := "auth sufficient pam_exec.so " + checkerInstallPath
+	if err := addLinuxPAMLines(line); err != nil {
+		t.Fatal(err)
+	}
+	for _, service := range []string{"sudo", "sudo-i"} {
+		if data, _ := os.ReadFile(filepath.Join(dir, service)); !strings.Contains(string(data), line) {
+			t.Errorf("%s:\n%s", service, data)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "polkit-1")); err == nil {
+		t.Error("made a polkit-1 config without polkit")
 	}
 }

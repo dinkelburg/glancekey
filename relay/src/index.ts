@@ -103,15 +103,11 @@ export class Machine extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    // The cards need the machine id, which the Durable Object only knows hashed. Every path has it (this object is
-    // idFromName of it), so a connection made while an older version ran still gets it with the iPhone's next request.
-    const machineId = url.pathname.split("/")[3];
-    if (await this.ctx.storage.get<string>("machineId") !== machineId) await this.ctx.storage.put("machineId", machineId);
-    return url.pathname.startsWith("/v1/agent/") ? this.connectAgent(request) : this.forward(request, url);
+    return url.pathname.startsWith("/v1/agent/") ? this.connectAgent(request, url) : this.forward(request, url);
   }
 
   /// The first agent to connect for a machine id claims it with its secret; later connections must match.
-  private async connectAgent(request: Request): Promise<Response> {
+  private async connectAgent(request: Request, url: URL): Promise<Response> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return json(426, { error: "Expected a WebSocket upgrade." });
     }
@@ -125,6 +121,10 @@ export class Machine extends DurableObject<Env> {
     } else if (!timingSafeEqual(claimed, hash)) {
       return json(403, { error: "This machine id belongs to another agent." });
     }
+    // The cards need the machine id, which the Durable Object only knows hashed. Kept once its computer connected, so
+    // requests for ids nobody has don't leave anything behind.
+    const machineId = url.pathname.split("/")[3];
+    if (await this.ctx.storage.get<string>("machineId") !== machineId) await this.ctx.storage.put("machineId", machineId);
 
     // A reconnect replaces the previous connection, which is usually already dead.
     for (const socket of this.ctx.getWebSockets()) {
@@ -234,8 +234,7 @@ export class Machine extends DurableObject<Env> {
     // Within what each iPhone may get from all computers together.
     const allowed: string[] = [];
     await Promise.all(tokens.map(async (token) => {
-      const recipient = this.env.RECIPIENTS.get(this.env.RECIPIENTS.idFromName(await sha256(token)));
-      if (await recipient.allow()) allowed.push(token);
+      if (await recipientAllows(this.env, token)) allowed.push(token);
     }));
     if (allowed.length === 0) return;
     // A newer notification for this computer replaces the previous one.
@@ -289,8 +288,15 @@ export class Machine extends DurableObject<Env> {
   }
 }
 
-/// One iPhone's notification address, by its SHA-256: counts the notifications sent to it in the last hour, so all
-/// computers together stay within MAX_NOTIFICATIONS_PER_IPHONE. Keeps nothing else, and nothing older than an hour.
+/// Whether the iPhone with this notification address may get one more alert: a notification, or a card lighting it up.
+async function recipientAllows(env: Env, pushToken: string): Promise<boolean> {
+  // Lowercase: APNs takes either, so one address mustn't get two allowances.
+  return env.RECIPIENTS.get(env.RECIPIENTS.idFromName(await sha256(pushToken.toLowerCase()))).allow();
+}
+
+/// One iPhone's notification address, by its SHA-256: counts the notifications and card alerts sent to it in the last
+/// hour, so all computers and cards together stay within MAX_NOTIFICATIONS_PER_IPHONE. Keeps nothing else, and nothing
+/// older than an hour.
 export class Recipient extends DurableObject<Env> {
   async allow(): Promise<boolean> {
     const now = Date.now();
@@ -367,6 +373,9 @@ const MAX_CARD_COMPUTERS = 8;
 const MAX_APPROVAL_WAIT_SECONDS = 24 * 60 * 60;
 const MAX_CARD_REQUESTS = 3;
 const MAX_REGISTRATIONS_PER_MINUTE = 20;
+/// A card its iPhone hasn't registered for this long is forgotten, as when the app was deleted without turning it
+/// off. The app registers it again at least every six hours while it runs (also when iOS wakes it for a new card).
+const CARD_RETENTION_MS = 90 * 24 * 3600_000;
 const LIVE_ACTIVITY_TOKEN = /^[0-9A-Fa-f]{32,1024}$/;
 const CARD_KEY = /^[A-Za-z0-9_-]{16,64}$/;
 
@@ -432,6 +441,8 @@ export class Card extends DurableObject<Env> {
       settings.startedAt = settings.updateToken ? Math.floor(Math.min(startedAt, now / 1000)) : undefined;
     }
     await this.ctx.storage.put("settings", settings);
+    await this.ctx.storage.put("registeredAt", now);
+    await this.alarmBy(now + CARD_RETENTION_MS);
 
     // Computers the iPhone no longer lists leave the card.
     const entries = await this.entries();
@@ -487,6 +498,11 @@ export class Card extends DurableObject<Env> {
 
   /// Pushes what's wanted, and drops requests once they expire, so their commands aren't kept any longer.
   async alarm(): Promise<void> {
+    const settings = await this.ctx.storage.get<CardSettings>("settings");
+    // Turned off, or not registered for too long (cards registered before the relay kept the date count from now).
+    const registeredAt = await this.ctx.storage.get<number>("registeredAt") ?? Date.now();
+    if (!settings || Date.now() - registeredAt >= CARD_RETENTION_MS) return this.ctx.storage.deleteAll();
+    await this.ctx.storage.put("registeredAt", registeredAt);
     const entries = await this.entries();
     const now = Math.floor(Date.now() / 1000);
     let expired = false;
@@ -498,10 +514,12 @@ export class Card extends DurableObject<Env> {
     if (expired) await this.ctx.storage.put("entries", entries);
     const wanted = expired || (await this.ctx.storage.get<boolean>("pushWanted") ?? false);
     await this.ctx.storage.delete("pushWanted");
-    const settings = await this.ctx.storage.get<CardSettings>("settings");
-    if (wanted && settings && settings.computers.length > 0) await this.push(settings);
+    if (wanted && settings.computers.length > 0) await this.push(settings);
+    // Turned off while it pushed: nothing left to keep.
+    if (!await this.ctx.storage.get<CardSettings>("settings")) return;
     const next = Math.min(...Object.values(entries).flatMap((entry) => entry.approvals.map((waiting) => waiting.until)));
     if (Number.isFinite(next)) await this.alarmBy(next * 1000 + 500);
+    await this.alarmBy(registeredAt + CARD_RETENTION_MS);
   }
 
   private async push(settings: CardSettings): Promise<void> {
@@ -511,17 +529,22 @@ export class Card extends DurableObject<Env> {
     await this.ctx.storage.delete("news");
     const name = settings.computers.find((computer) => computer.id === news?.machineId)?.name ?? "Your computer";
     // A new request alerts you, with notifications on: through the card when there is one, else as a notification.
-    const alerts = news?.reason === "request" && settings.alerts;
+    // Either counts toward what the iPhone may get from all computers together.
+    const alerts = news?.reason === "request" && settings.alerts && settings.pushToken !== undefined &&
+      await recipientAllows(this.env, settings.pushToken);
     const waiting = { title: `${name} is waiting for you`, body: "Approve it on the card.", sound: alerts };
 
     const running = settings.updateToken && settings.startedAt && now / 1000 - settings.startedAt < CARD_LIFETIME_SECONDS;
     if (running) {
       const result = await this.pushCard(settings.updateToken!, settings, "update", alerts ? waiting : undefined);
-      if (result.gone) {
+      // Turned off while the push was on its way: everything is gone, and stays gone.
+      const current = await this.ctx.storage.get<CardSettings>("settings");
+      if (!current) return;
+      if (result.gone && current.updateToken === settings.updateToken) {
         // The card ended (swiped away, or iOS ended it): start a new one with the next change worth it.
-        await this.ctx.storage.put("settings", { ...settings, updateToken: undefined, startedAt: undefined });
+        await this.ctx.storage.put("settings", { ...current, updateToken: undefined, startedAt: undefined });
       }
-      if (alerts && !result.ok) await this.notifyInstead(settings, name, news!.machineId);
+      if (alerts && !result.ok) await this.notifyInstead(current, name, news!.machineId);
       await this.ctx.storage.put("dirty", !result.ok);
       return;
     }
@@ -529,10 +552,12 @@ export class Card extends DurableObject<Env> {
     if (news && settings.startToken && now - startedAt >= MIN_START_INTERVAL_MS) {
       const alert = news.reason === "request" ? waiting : { title: `${name} is locked`, body: "Unlock it from the card.", sound: false };
       const result = await this.pushCard(settings.startToken, settings, "start", alert);
+      const current = await this.ctx.storage.get<CardSettings>("settings");
+      if (!current) return;
       if (result.ok) {
         await this.ctx.storage.put("startedCardAt", now);
         // The iPhone sends the new card's update token; until then changes wait (see fetch).
-        await this.ctx.storage.put("settings", { ...settings, updateToken: undefined, startedAt: Math.floor(now / 1000) });
+        await this.ctx.storage.put("settings", { ...current, updateToken: undefined, startedAt: Math.floor(now / 1000) });
         await this.ctx.storage.put("dirty", false);
         return;
       }
@@ -541,7 +566,8 @@ export class Card extends DurableObject<Env> {
     await this.ctx.storage.put("dirty", true);
   }
 
-  /// The notification a computer would have sent, for a new request when the card can't alert you itself.
+  /// The notification a computer would have sent, for a new request when the card can't alert you itself (already
+  /// counted for the iPhone, as `alerts`).
   private async notifyInstead(settings: CardSettings, machineName: string, machineId: string): Promise<void> {
     if (!settings.pushToken) return;
     const until = Math.max(0, ...((await this.entries())[machineId]?.approvals ?? []).map((waiting) => waiting.until));

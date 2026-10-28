@@ -25,6 +25,9 @@
     { "pattern": "relay.glancekey.com", "custom_domain": true },
     { "pattern": "glancekey.dinkelworks.nl", "custom_domain": true }
   ],
+  // Only those: the app counts a workers.dev address as a relay of your own, without the free limits.
+  "workers_dev": false,
+  "preview_urls": false,
   // Notifications through Apple's push service (src/index.ts). The key itself is a secret:
   // npx wrangler secret put APNS_KEY < AuthKey_<APNS_KEY_ID>.p8
   "vars": {

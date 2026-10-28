@@ -64,7 +64,8 @@ enum PasswordDialog {
 
     /// The dialog's lines, e.g. "1Password is trying to unlock." and "Touch ID or enter your password to continue
     /// with 1Password." The program asking can choose some of the words, so invisible characters that could make
-    /// them read differently (right-to-left overrides, zero-width spaces) show as "�".
+    /// them read differently (right-to-left overrides, zero-width spaces, blank-looking ones like the Hangul fillers
+    /// and the Braille blank) show as "�".
     private static func texts(in window: AXUIElement) -> [String] {
         window.all { $0.role == kAXStaticTextRole }
             .compactMap { $0.string(kAXValueAttribute) }
@@ -75,7 +76,8 @@ enum PasswordDialog {
     private static func visible(_ text: String) -> String {
         var scalars = String.UnicodeScalarView()
         for scalar in text.unicodeScalars {
-            scalars.append(scalar.properties.generalCategory == .format ? "\u{FFFD}" : scalar)
+            let invisible = scalar.properties.generalCategory == .format || scalar.properties.isDefaultIgnorableCodePoint || scalar == "\u{2800}"
+            scalars.append(invisible ? "\u{FFFD}" : scalar)
         }
         return String(scalars)
     }

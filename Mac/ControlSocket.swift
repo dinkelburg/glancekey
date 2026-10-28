@@ -1,5 +1,6 @@
 import Darwin
 import AppCore
+import CryptoKit
 import Foundation
 
 /// The Unix socket the root-owned checker (the Go agent's `pam` command, which sudo runs) and `enable-sudo` talk to,
@@ -125,11 +126,24 @@ struct Approvers: Codable {
     static let path = "/etc/\(Brand.id)/approvers.json"
 
     struct Device: Codable {
-        var id: String
+        /// The iPhone's device id, as this app hands it to enable-sudo. approvers.json only keeps its SHA-256
+        /// (`idHash`): anyone on the Mac can read the file, and a device id is all a hello needs.
+        var id: String?
+        var idHash: String?
         var name: String
         var publicKey: Data
         /// RFC 3339, as linux/control.go's Approver has it. Shown with the key when setting up.
         var pairedAt: String?
+
+        /// Whether this is the iPhone with `deviceId`, from either (files from before 1.0.3 have the id itself).
+        func isDevice(_ deviceId: String) -> Bool {
+            (idHash ?? id.map(Approvers.hash)) == Approvers.hash(deviceId)
+        }
+    }
+
+    /// How approvers.json names a device id: hex SHA-256, as deviceIDHash in linux/control.go.
+    static func hash(_ id: String) -> String {
+        SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     var machineId: String

@@ -20,6 +20,9 @@ final class LiveCardController {
         static let registration = "liveCardRegistration"
         static let registeredAt = "liveCardRegisteredAt"
         static let relay = "liveCardRelay"
+        /// Relays the card was on before, where it's still to be turned off.
+        static let staleRelays = "liveCardStaleRelays"
+        static let staleTriedAt = "liveCardStaleTriedAt"
     }
 
     /// What the app told the relay. Sent again when it changes, and every few hours in case the relay lost it.
@@ -57,6 +60,7 @@ final class LiveCardController {
     private var shown: LiveCardAttributes.ContentState?
     /// The card's buttons that are working, by computer or request (`ContentState.Busy`).
     private var busy: [String: LiveCardAttributes.ContentState.Busy] = [:]
+    private var turningOffStale = false
 
     private init() {
         let defaults = UserDefaults.standard
@@ -91,9 +95,20 @@ final class LiveCardController {
     }
 
     /// The card id for a computer: "" when there's no card, or the computer isn't on it, so it stops updating it and
-    /// notifies this iPhone itself.
+    /// notifies this iPhone itself. A computer with the id leaves notifying to the card, so only once the relay took a
+    /// registration that lists it: until then a new request would reach neither.
     func cardId(for machine: PairedMachine) -> String {
-        isEnabled && isAllowed && isOnCard(machine) ? cardId : ""
+        guard isEnabled, isAllowed, isOnCard(machine), let confirmed, confirmed.on,
+              confirmed.computers.contains(where: { $0.id == machine.machineId })
+        else { return "" }
+        return cardId
+    }
+
+    /// What the card's relay last took.
+    private var confirmed: Registration? {
+        let defaults = UserDefaults.standard
+        guard let relay, let registeredOn = defaults.url(forKey: Defaults.relay), Brand.isSameRelay(relay, registeredOn) else { return nil }
+        return defaults.data(forKey: Defaults.registration).flatMap { try? JSONDecoder().decode(Registration.self, from: $0) }
     }
 
     /// At launch, including when iOS starts the app in the background for a card the relay started.
@@ -126,13 +141,14 @@ final class LiveCardController {
 
     /// Shows `state` on the card, starting one if there's none and the app is on screen (iOS only allows that then).
     func show(_ state: LiveCardAttributes.ContentState) async {
-        guard isEnabled, isAllowed else { return }
+        // Turned off (here or in iOS's Settings), or no computer left on it: the relay forgets the card too.
+        guard isEnabled, isAllowed else { return await register() }
         var state = state
         state.busy = busyList
         if state.computers.isEmpty {
             for activity in Activity<LiveCardAttributes>.activities { await activity.end(nil, dismissalPolicy: .immediate) }
             shown = nil
-            return
+            return await register()
         }
         if let activity = current {
             if state != shown || activity.activityState == .stale {
@@ -217,12 +233,20 @@ final class LiveCardController {
     private func register() async {
         let model = PhoneModel.shared
         let defaults = UserDefaults.standard
-        // The card moved to another relay, or the last computer is gone: turn it off on the relay it was on.
+        // The card moved to another relay, or the last computer is gone: turn it off on the relay it was on, without
+        // waiting for it, as it may be down.
         if let previous = defaults.url(forKey: Defaults.relay), relay.map({ !Brand.isSameRelay($0, previous) }) ?? true {
-            guard await post(Registration(secret: secret, on: false, key: key, computers: []), to: previous) else { return }
             for name in [Defaults.relay, Defaults.registration, Defaults.registeredAt] { defaults.removeObject(forKey: name) }
+            defaults.set((defaults.stringArray(forKey: Defaults.staleRelays) ?? []) + [previous.absoluteString], forKey: Defaults.staleRelays)
+            Task { await turnOffStaleRelays(now: true) }
+        } else {
+            Task { await turnOffStaleRelays() }
         }
         guard let relay else { return }
+        // Registering here replaces what it had, so it's no longer one to turn off.
+        if let stale = defaults.stringArray(forKey: Defaults.staleRelays) {
+            defaults.set(stale.filter { URL(string: $0).map { !Brand.isSameRelay($0, relay) } ?? false }, forKey: Defaults.staleRelays)
+        }
         var registration = Registration(secret: secret, on: isEnabled && isAllowed, key: key, computers: [])
         if registration.on {
             registration.computers = model.liveCardContent.computers.map { .init(id: $0.id, name: $0.name, state: $0.state.rawValue) }
@@ -241,6 +265,32 @@ final class LiveCardController {
         defaults.set(try? JSONEncoder().encode(registration), forKey: Defaults.registration)
         defaults.set(Date(), forKey: Defaults.registeredAt)
         defaults.set(relay, forKey: Defaults.relay)
+        // Computers the card lists now get its id with a hello (`cardId(for:)`).
+        let listed = Set(previous.map { $0.on ? $0.computers.map(\.id) : [] } ?? [])
+        if registration.on, !Set(registration.computers.map(\.id)).isSubset(of: listed) {
+            Task { await model.refresh() }
+        }
+    }
+
+    /// Turns the card off on the relays it was on before, each until it confirms: right away when it moved (`now`),
+    /// otherwise at most once an hour.
+    private func turnOffStaleRelays(now: Bool = false) async {
+        let defaults = UserDefaults.standard
+        let triedAt = defaults.object(forKey: Defaults.staleTriedAt) as? Date ?? .distantPast
+        guard !turningOffStale, now || triedAt < Date().addingTimeInterval(-3600),
+              let stale = defaults.stringArray(forKey: Defaults.staleRelays), !stale.isEmpty
+        else { return }
+        turningOffStale = true
+        defer { turningOffStale = false }
+        defaults.set(Date(), forKey: Defaults.staleTriedAt)
+        var left: [String] = []
+        for string in stale {
+            guard let url = URL(string: string) else { continue }
+            if await !post(Registration(secret: secret, on: false, key: key, computers: []), to: url) { left.append(string) }
+        }
+        // Added meanwhile, or taken off because the card is back there.
+        let current = defaults.stringArray(forKey: Defaults.staleRelays) ?? []
+        defaults.set(left.filter(current.contains) + current.filter { !stale.contains($0) }, forKey: Defaults.staleRelays)
     }
 
     /// Whether the relay took it.

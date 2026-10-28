@@ -142,6 +142,15 @@ private struct ComputerRow: View {
     let key: String
 
     var body: some View {
+        // Unlock and Lock only work right away when the whole name fits: when it's cut off, two computers could look the
+        // same, so the link says nothing was shown and the app opens the computer instead.
+        ViewThatFits(in: .horizontal) {
+            row(fitsInFull: true)
+            row(fitsInFull: false)
+        }
+    }
+
+    private func row(fitsInFull: Bool) -> some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(color)
@@ -149,6 +158,7 @@ private struct ComputerRow: View {
             Text(computer.name)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
+                .fixedSize(horizontal: fitsInFull, vertical: false)
             Spacer(minLength: 4)
             Text(stateName)
                 .font(.caption)
@@ -158,11 +168,11 @@ private struct ComputerRow: View {
             } else {
                 switch computer.state {
                 case .locked:
-                    Link(destination: LiveCardLink.unlock(computer: computer.id, shown: LiveCardLink.shown(computer.name)).url(key: key)) {
+                    Link(destination: LiveCardLink.unlock(computer: computer.id, shown: shown(fitsInFull)).url(key: key)) {
                         CapsuleLabel("Unlock", prominent: true)
                     }
                 case .unlocked:
-                    Link(destination: LiveCardLink.lock(computer: computer.id, shown: LiveCardLink.shown(computer.name)).url(key: key)) {
+                    Link(destination: LiveCardLink.lock(computer: computer.id, shown: shown(fitsInFull)).url(key: key)) {
                         CapsuleLabel("Lock", prominent: false)
                     }
                 case .offline, .unknown:
@@ -170,6 +180,10 @@ private struct ComputerRow: View {
                 }
             }
         }
+    }
+
+    private func shown(_ fitsInFull: Bool) -> String? {
+        fitsInFull ? LiveCardLink.shown(computer.name) : nil
     }
 
     private var color: Color {

@@ -29,8 +29,9 @@ var (
 	pamDir = "/etc/pam.d"
 	// Newer packages (polkit on Arch and Debian) ship their PAM config here and only read /etc/pam.d/<service>
 	// as an override.
-	vendorPAMDirs    = []string{"/usr/lib/pam.d", "/usr/share/pam.d"}
-	linuxPAMServices = []string{"sudo", "polkit-1"}
+	vendorPAMDirs = []string{"/usr/lib/pam.d", "/usr/share/pam.d"}
+	// sudo-i is what `sudo -i` uses on Debian and Ubuntu; other systems don't have it.
+	linuxPAMServices = []string{"sudo", "sudo-i", "polkit-1"}
 )
 
 // createdMarker starts an override enable-sudo created from a vendor file; disable-sudo deletes such files.
@@ -86,7 +87,7 @@ func cmdEnableSudo(args []string) error {
 	if err := checkTree(checkerInstallPath); err != nil {
 		return fmt.Errorf("sudo would run the checker from an unsafe place: %w", err)
 	}
-	data, _ := json.MarshalIndent(approvers, "", "  ")
+	data, _ := json.MarshalIndent(approvers.hashed(), "", "  ")
 	if err := writeFile(approversPath, data, 0o644); err != nil {
 		return err
 	}
@@ -203,7 +204,7 @@ func describeApproverChanges(previous, next *Approvers) string {
 	for _, device := range next.Devices {
 		mark := ""
 		if previous != nil {
-			if old := previous.find(device.ID); old == nil || !bytes.Equal(old.PublicKey, device.PublicKey) {
+			if old := previous.findKey(device.key()); old == nil || !bytes.Equal(old.PublicKey, device.PublicKey) {
 				mark = "  (new)"
 			}
 		}
@@ -211,7 +212,7 @@ func describeApproverChanges(previous, next *Approvers) string {
 	}
 	if previous != nil {
 		for _, device := range previous.Devices {
-			if next.find(device.ID) == nil {
+			if next.findKey(device.key()) == nil {
 				fmt.Fprintf(&out, "No longer: %s\n", oneLine(device.Name, 100))
 			}
 		}
@@ -272,7 +273,7 @@ func addLinuxPAMLines(line string) error {
 				if i == 0 {
 					return fmt.Errorf("found no PAM config for %s", service)
 				}
-				continue // no polkit
+				continue // no polkit or sudo-i
 			}
 			if data, err = os.ReadFile(vendor); err != nil {
 				return err
@@ -349,10 +350,12 @@ func enableMacPAM(module, pamCheck string) error {
 	} else if err != nil {
 		return err
 	}
-	updated := addPAMLine(string(data), "auth       sufficient     "+macModulePath+" "+checkerInstallPath)
-	if updated == string(data) {
+	line := "auth       sufficient     " + macModulePath + " " + checkerInstallPath
+	// Already there, maybe below a line you put first, like pam_tid.so: leave the file as you have it.
+	if hasPAMLine(string(data), line) {
 		return nil
 	}
+	updated := addPAMLine(string(data), line)
 	var writeErr error
 	if exists {
 		writeErr = backUp(file, data)
@@ -395,6 +398,17 @@ func addPAMLine(config, line string) string {
 		result += "\n"
 	}
 	return result
+}
+
+// hasPAMLine: config has line as one of its own, whatever the spacing.
+func hasPAMLine(config, line string) bool {
+	want := strings.Join(strings.Fields(line), " ")
+	for _, l := range strings.Split(config, "\n") {
+		if strings.Join(strings.Fields(l), " ") == want {
+			return true
+		}
+	}
+	return false
 }
 
 func removePAMLines(config string) string {

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,11 +70,40 @@ type Approvers struct {
 }
 
 type Approver struct {
-	ID        string `json:"id"`
+	// ID is the iPhone's device id, as the agent and the Mac app hand it to enable-sudo. approvers.json only keeps
+	// its SHA-256 (IDHash): anyone on the computer can read the file, and a device id is all a hello needs.
+	ID        string `json:"id,omitempty"`
+	IDHash    string `json:"idHash,omitempty"`
 	Name      string `json:"name"`
 	PublicKey []byte `json:"publicKey"`
 	// PairedAt is shown when setting up, with the key's fingerprint, so a key paired behind your back stands out.
 	PairedAt *time.Time `json:"pairedAt,omitempty"`
+}
+
+// key tells iPhones apart whether the device id is there or only its hash (approvers.json from before 1.0.3 has
+// the id itself).
+func (a Approver) key() string {
+	if a.IDHash != "" {
+		return a.IDHash
+	}
+	return deviceIDHash(a.ID)
+}
+
+// deviceIDHash is how approvers.json names a device id: hex SHA-256, as in Mac/ControlSocket.swift.
+func deviceIDHash(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(sum[:])
+}
+
+// hashed is the list as approvers.json keeps it, with the device ids hashed.
+func (a *Approvers) hashed() *Approvers {
+	copied := *a
+	copied.Devices = make([]Approver, len(a.Devices))
+	for i, device := range a.Devices {
+		device.IDHash, device.ID = device.key(), ""
+		copied.Devices[i] = device
+	}
+	return &copied
 }
 
 func controlSocketPath() string {
