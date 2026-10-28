@@ -22,9 +22,10 @@ struct UnlimitedView: View {
     var body: some View {
         SubscriptionStoreView(productIDs: Store.productIDs) {
             VStack(spacing: 12) {
-                Image(systemName: Biometry.symbol)
-                    .font(.system(size: 48))
-                    .foregroundStyle(.tint)
+                Image("Logo")
+                    .resizable()
+                    .frame(width: 72, height: 72)
+                    .accessibilityHidden(true)
                 Text("\(Brand.name) Unlimited")
                     .font(.title.weight(.bold))
                 Text(headline)
@@ -37,6 +38,7 @@ struct UnlimitedView: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding()
         }
+        .planPicker()
         .storeButton(.visible, for: .restorePurchases)
         .storeButton(.visible, for: .policies)
         // Settings shows it as a page of its own, with a back button.
@@ -65,5 +67,60 @@ struct UnlimitedView: View {
         case .asked:
             "Unlock and approve as often as you like, on as many computers as you like."
         }
+    }
+}
+
+private extension View {
+    /// The plans by length and price only, since the header already names the subscription. iOS 17 can't draw its own
+    /// rows, so it shows Apple's with the products' display names.
+    @ViewBuilder func planPicker() -> some View {
+        if #available(iOS 18, *) {
+            subscriptionStoreControlStyle(PlanPicker())
+        } else {
+            productDescription(.hidden)
+        }
+    }
+}
+
+/// "Yearly" and "Monthly" with their price, the yearly one with what it saves over paying monthly.
+@available(iOS 18, *)
+private struct PlanPicker: SubscriptionStoreControlStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        let saving = Self.yearlySaving(configuration.options.map(\.subscription))
+        SubscriptionPicker(configuration) { plan in
+            let yearly = plan.subscriptionPeriod?.unit == .year
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(yearly ? "Yearly" : "Monthly")
+                        .font(.headline)
+                    HStack(spacing: 6) {
+                        Text("\(plan.displayPrice) a \(yearly ? "year" : "month")")
+                        if yearly, let saving {
+                            Text("Save \(saving)")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    .font(.subheadline)
+                }
+                Spacer()
+                Image(systemName: plan.isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title2)
+                    .foregroundStyle(plan.isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+            }
+        } confirmation: { plan in
+            SubscribeButton(plan)
+        }
+    }
+
+    /// How much less a year costs on the yearly plan than in twelve months, rounded down so it never says too much.
+    static func yearlySaving(_ plans: [Product]) -> String? {
+        func price(_ unit: Product.SubscriptionPeriod.Unit) -> Decimal? {
+            let plan = plans.first { $0.subscription?.subscriptionPeriod.unit == unit }
+            return plan?.subscription?.subscriptionPeriod.value == 1 ? plan?.price : nil
+        }
+        guard let yearly = price(.year), let monthly = price(.month), monthly > 0 else { return nil }
+        let saving = 1 - yearly / (12 * monthly)
+        return saving >= 0.01 ? saving.formatted(.percent.precision(.fractionLength(0)).rounded(rule: .down)) : nil
     }
 }
