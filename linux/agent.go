@@ -210,7 +210,8 @@ func (a *Agent) command(body []byte) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if req.PasswordKey != "" {
+	// Only where the signature covered it (signedMessageV2): setWait's signature doesn't, so a relay could add its own.
+	if req.PasswordKey != "" && req.Action != actionSetWait {
 		// After the command, so an unlock still finds the keyring's plain password before it's sealed and removed.
 		defer a.registerPasswordKey(device, req.PasswordKey)
 	}

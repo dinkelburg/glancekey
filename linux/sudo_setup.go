@@ -194,7 +194,7 @@ func describeApproverChanges(previous, next *Approvers) string {
 				mark = "  (new)"
 			}
 		}
-		fmt.Fprintf(&out, "  %s%s\n", oneLine(device.Name, 100), mark)
+		fmt.Fprintf(&out, "  %s%s\n", describeApprover(device), mark)
 	}
 	if previous != nil {
 		for _, device := range previous.Devices {
@@ -204,6 +204,16 @@ func describeApproverChanges(previous, next *Approvers) string {
 		}
 	}
 	return out.String()
+}
+
+// describeApprover names an iPhone with its key's fingerprint, which the iPhone app shows on the computer's page,
+// and when it was paired: every iPhone is called "iPhone", so the name alone can't tell a planted key apart.
+func describeApprover(device Approver) string {
+	text := oneLine(device.Name, 100) + ", key " + keyFingerprint(device.PublicKey)
+	if device.PairedAt != nil && !device.PairedAt.IsZero() {
+		text += ", paired " + device.PairedAt.Local().Format("2 Jan 2006")
+	}
+	return text
 }
 
 // confirm asks a yes/no question in the terminal; anything but yes, or no terminal, is an error.
@@ -398,18 +408,31 @@ func installFile(from, to string, mode os.FileMode) error {
 	return writeFile(to, data, mode)
 }
 
-// writeFile replaces path atomically with a root-owned file (as this runs as root) in a root-owned folder.
+// writeFile replaces path atomically with a root-owned file (as this runs as root) in a root-owned folder. It checks
+// the folder first and writes a new, randomly named file next to it, so nobody else can point it at another file.
 func writeFile(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	temp := path + "." + appID + "-tmp"
-	if err := os.WriteFile(temp, data, mode); err != nil {
+	if err := checkFolders(dir); err != nil {
+		return fmt.Errorf("won't write %s: %w", path, err)
+	}
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(temp, mode); err != nil {
-		os.Remove(temp)
+	defer os.Remove(temp.Name()) // nothing left to remove once it's renamed
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
 		return err
 	}
-	return os.Rename(temp, path)
+	if err := temp.Chmod(mode); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temp.Name(), path)
 }

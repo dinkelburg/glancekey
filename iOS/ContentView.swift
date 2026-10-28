@@ -8,9 +8,11 @@ struct ContentView: View {
     @State private var showingSettings = false
     /// `model.offer` once it's on screen: the other sheets close first.
     @State private var shownOffer: UnlimitedOffer?
+    /// The computer pages open on top of the list.
+    @State private var path: [String] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if model.machines.isEmpty {
                     ScrollView {
@@ -20,8 +22,11 @@ struct ContentView: View {
                         }
                         .padding()
                     }
-                    // Its own heading says what the app does; a title would only repeat the app's name.
-                    .toolbar(.hidden, for: .navigationBar)
+                    // Its own heading says what the app does; a title would only repeat the app's name. Settings is
+                    // here too, so the subscription and help can be found before pairing.
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) { settingsButton }
+                    }
                 } else {
                     machineList
                         .navigationTitle("Computers")
@@ -36,12 +41,7 @@ struct ContentView: View {
                                     Image(systemName: "plus")
                                 }
                                 .accessibilityLabel("Add a computer")
-                                Button {
-                                    showingSettings = true
-                                } label: {
-                                    Image(systemName: "gearshape")
-                                }
-                                .accessibilityLabel("Settings")
+                                settingsButton
                             }
                         }
                         .navigationDestination(for: String.self) { MachineDetail(machineId: $0) }
@@ -84,6 +84,15 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private var settingsButton: some View {
+        Button {
+            showingSettings = true
+        } label: {
+            Image(systemName: "gearshape")
+        }
+        .accessibilityLabel("Settings")
     }
 
     private func showOffer() {
@@ -129,6 +138,10 @@ struct ContentView: View {
             .refreshable { await model.refresh() }
             .onChange(of: model.scrollTarget) { _, target in
                 guard let target else { return }
+                // A card button opened the app: what it's about may be behind a computer's page or a sheet.
+                path.removeAll()
+                showingSettings = false
+                showingAddComputer = false
                 withAnimation { proxy.scrollTo(target, anchor: .top) }
                 model.scrollTarget = nil
             }
@@ -308,6 +321,11 @@ private struct MachineDetail: View {
                             .multilineTextAlignment(.trailing)
                     }
                     LabeledContent("Kind", value: machine.kind)
+                } footer: {
+                    // The computer lists this iPhone with the same key, so one paired behind your back stands out there.
+                    if let key = try? DeviceKey.publicKey(tag: machine.deviceId) {
+                        Text("This iPhone's key: \(PairedDevice.keyFingerprint(key)). \(machine.machineName) shows the same next to this iPhone.")
+                    }
                 }
                 // Unknown while the computer can't be reached.
                 if let status = model.statuses[machine.machineId], status.error == nil {

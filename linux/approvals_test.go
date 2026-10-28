@@ -66,6 +66,9 @@ func newApprovalSetup(t *testing.T) *approvalSetup {
 	account, _ := user.Current()
 	t.Setenv("PAM_USER", account.Username)
 	t.Setenv("PAM_SERVICE", "sudo")
+	// The checker's parent here is the test runner, not sudo.
+	t.Cleanup(func() { requesterInfo = processInfo })
+	requesterInfo = func(int) ([]string, map[string]string, error) { return []string{"sudo", "id"}, nil, nil }
 	t.Setenv("PAM_TTY", "/dev/pts/7")
 	t.Setenv("PAM_TYPE", "auth")
 	return setup
@@ -355,7 +358,7 @@ func TestDescribeRequest(t *testing.T) {
 	if title != `sudo pacman -S "a b" "x\ny"` || detail != "ruben on ttys003" {
 		t.Fatalf("got %q / %q", title, detail)
 	}
-	if title, _, _ := describeRequest("polkit-1", "ruben", "", []string{"/usr/lib/polkit-1/polkit-agent-helper-1", "ruben"}); title != "Administrator access (system dialog)" {
+	if title, _, _ := describeRequest("polkit-1", "ruben", "", []string{"/usr/lib/polkit-1/polkit-agent-helper-1", "ruben"}); title != polkitTitle {
 		t.Fatalf("polkit: %q", title)
 	}
 	// Invisible characters could make the iPhone show something else than what runs, so they're escaped:
@@ -370,6 +373,20 @@ func TestDescribeRequest(t *testing.T) {
 	}
 	if _, _, err := describeRequest("sudo", "ruben", "", []string{"sudo", strings.Repeat("x", 500)}); err != errTitleTooLong {
 		t.Fatalf("a command too long to show in full: %v", err)
+	}
+	// A first argument that isn't sudo (an empty one shifts what procargs shows) gets the password prompt, and so
+	// does a command that couldn't be read.
+	for _, args := range [][]string{{"/tmp/evil", "pacman", "-Syu"}, {"", "x"}, nil} {
+		if _, _, err := describeRequest("sudo", "ruben", "", args); err != errUnknownCommand {
+			t.Fatalf("%q: %v", args, err)
+		}
+	}
+	if title, _, _ := describeRequest("sudo", "ruben", "", []string{"/usr/bin/sudoedit", "/etc/hosts"}); title != "sudoedit /etc/hosts" {
+		t.Fatalf("sudoedit: %q", title)
+	}
+	// Invalid UTF-8 and the replacement character would show as a space, splitting one argument in two.
+	if title, _, _ := describeRequest("sudo", "ruben", "", []string{"sudo", "cp", "a\xffb", "a\ufffdb", "/etc/x"}); title != `sudo cp "a\xffb" "a\ufffdb" /etc/x` {
+		t.Fatalf("invalid UTF-8: %q", title)
 	}
 	if got := oneLine("a\nb c", 10); got != "a b c" {
 		t.Fatalf("oneLine: %q", got)
@@ -476,15 +493,23 @@ func TestVendorPAMOverride(t *testing.T) {
 
 func TestWithoutEmulator(t *testing.T) {
 	rosetta := []string{"/run/rosetta/rosetta", "/usr/sbin/sudo", "sudo", "-k", "-S", "id"}
-	args := withoutEmulator(rosetta)
+	args := withoutEmulator("/run/rosetta/rosetta", rosetta)
 	if !sudoWithoutPrompt(args) {
 		t.Fatalf("-S not seen in %q", args)
 	}
 	if title, _, _ := describeRequest("sudo", "ruben", "", args); title != "sudo -k -S id" {
 		t.Fatalf("title %q", title)
 	}
-	if got := withoutEmulator([]string{"sudo", "id"}); len(got) != 2 {
+	if got := withoutEmulator("/usr/bin/sudo", []string{"sudo", "id"}); len(got) != 2 {
 		t.Fatalf("native args changed: %q", got)
+	}
+	// Whoever starts sudo picks its first argument, so a name like an emulator's changes nothing.
+	sneaky := []string{"qemu-x", "/tmp/evil", "x", "pacman", "-Syu"}
+	if got := withoutEmulator("/usr/bin/sudo", sneaky); len(got) != len(sneaky) {
+		t.Fatalf("dropped arguments by their name: %q", got)
+	}
+	if _, _, err := describeRequest("sudo", "ruben", "", withoutEmulator("/usr/bin/sudo", sneaky)); err != errUnknownCommand {
+		t.Fatalf("qemu-named first argument: %v", err)
 	}
 }
 
@@ -527,12 +552,18 @@ func TestDescribeApproverChanges(t *testing.T) {
 	impostor := Approver{ID: "c", Name: "Ruben's iPhone", PublicKey: []byte{3}}
 	swapped := Approver{ID: "a", Name: "Ruben's iPhone", PublicKey: []byte{4}}
 	got := describeApproverChanges(previous, &Approvers{MachineName: "omarchy", Devices: []Approver{phone, impostor}})
-	want := "These iPhones will approve sudo on omarchy:\n  Ruben's iPhone\n  Ruben's iPhone  (new)\nNo longer: Old iPhone\n"
+	key := func(device Approver) string { return ", key " + keyFingerprint(device.PublicKey) }
+	want := "These iPhones will approve sudo on omarchy:\n  Ruben's iPhone" + key(phone) + "\n  Ruben's iPhone" + key(impostor) + "  (new)\nNo longer: Old iPhone\n"
 	if got != want {
 		t.Fatalf("got\n%s", got)
 	}
-	if got := describeApproverChanges(previous, &Approvers{MachineName: "omarchy", Devices: []Approver{swapped}}); !strings.Contains(got, "Ruben's iPhone  (new)") {
+	if got := describeApproverChanges(previous, &Approvers{MachineName: "omarchy", Devices: []Approver{swapped}}); !strings.Contains(got, "Ruben's iPhone"+key(swapped)+"  (new)") {
 		t.Fatalf("a new key for a known iPhone isn't marked:\n%s", got)
+	}
+	pairedAt := time.Date(2026, 10, 28, 12, 0, 0, 0, time.Local)
+	dated := Approver{ID: "d", Name: "iPhone", PublicKey: []byte("test"), PairedAt: &pairedAt}
+	if got := describeApprover(dated); got != "iPhone, key 9F86-D081-884C, paired 28 Oct 2026" {
+		t.Fatalf("describeApprover: %q", got)
 	}
 	// The first setup has nothing to compare with.
 	if got := describeApproverChanges(nil, &Approvers{MachineName: "omarchy", Devices: []Approver{phone}}); strings.Contains(got, "new") {

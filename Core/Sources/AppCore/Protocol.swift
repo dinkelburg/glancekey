@@ -332,12 +332,14 @@ public struct RelayNotification: Codable, Sendable {
     public struct Notify: Codable, Sendable {
         public var machineName: String
         public var pushTokens: [String]
+        /// Seconds until the request stops waiting, so Apple can still deliver to an iPhone that was offline.
+        public var expiresIn: Int?
     }
 
     public var notify: Notify
 
-    public init(machineName: String, pushTokens: [String]) {
-        notify = Notify(machineName: machineName, pushTokens: pushTokens)
+    public init(machineName: String, pushTokens: [String], expiresIn: Int? = nil) {
+        notify = Notify(machineName: machineName, pushTokens: pushTokens, expiresIn: expiresIn)
     }
 }
 

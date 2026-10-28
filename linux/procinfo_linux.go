@@ -25,6 +25,11 @@ func processInfo(pid int) ([]string, map[string]string, error) {
 	return args, env, nil
 }
 
+// executableOf returns the program a process runs. Under binfmt emulation that's the emulator, not sudo.
+func executableOf(pid int) (string, error) {
+	return os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+}
+
 // parentOf returns a process's parent and command name, from /proc/<pid>/stat, which (unlike environ) is
 // readable for every process.
 func parentOf(pid int) (int, string, error) {

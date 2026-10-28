@@ -243,7 +243,7 @@ func cmdStatus() error {
 				used += " (not unlocked with it yet)"
 			}
 		}
-		fmt.Printf("%s %s (%s, %s)\n", label, device.Name, device.ID, used)
+		fmt.Printf("%s %s (key %s, paired %s, %s)\n", label, device.Name, device.Key, device.PairedAt.Local().Format("2 Jan 2006"), used)
 	}
 	fmt.Printf("sudo:         %s\n", sudoApprovalStatus(s.Devices))
 	return nil

@@ -3,11 +3,23 @@ package main
 import (
 	"crypto/ecdh"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 )
+
+// keyFingerprint is a short, readable form of an iPhone's public key: the first 6 bytes of its SHA-256, like
+// "9F86-D081-884C". The iPhone app shows the same for its key, so a key paired behind your back stands out even when
+// every iPhone is called "iPhone". Core's PairedDevice.keyFingerprint does the same.
+func keyFingerprint(publicKey []byte) string {
+	sum := sha256.Sum256(publicKey)
+	digits := strings.ToUpper(hex.EncodeToString(sum[:6]))
+	return digits[0:4] + "-" + digits[4:8] + "-" + digits[8:12]
+}
 
 type PairedDevice struct {
 	ID         string     `json:"id"`

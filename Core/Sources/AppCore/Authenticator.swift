@@ -24,6 +24,17 @@ public struct PairedDevice: Codable, Identifiable, Equatable, Sendable {
         self.cardId = cardId
     }
 
+    /// A short, readable form of the key, like "9F86-D081-884C": the iPhone app shows the same for its own key (on
+    /// the computer's page), so a key paired behind your back stands out even when every iPhone is called "iPhone".
+    public var keyFingerprint: String { Self.keyFingerprint(publicKey) }
+
+    /// The first 6 bytes of the key's SHA-256, in groups of 4 hex digits. linux/auth.go's keyFingerprint matches.
+    public static func keyFingerprint(_ publicKey: Data) -> String {
+        let bytes = Array(SHA256.hash(data: publicKey).prefix(6))
+        return stride(from: 0, to: bytes.count, by: 2).map { String(format: "%02X%02X", bytes[$0], bytes[$0 + 1]) }
+            .joined(separator: "-")
+    }
+
     /// Checks the iPhone's signature over `message` with its paired key.
     public func isValidSignature(_ signature: String, for message: Data) -> Bool {
         guard let key = try? P256.Signing.PublicKey(x963Representation: publicKey),

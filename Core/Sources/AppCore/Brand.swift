@@ -16,6 +16,18 @@ public enum Brand {
     public static let docs = website.appending(path: "docs")
     public static let privacyPolicy = website.appending(path: "privacy")
 
+    /// Whether `relay` is ours, under either address (a trailing dot is the same host).
+    public static func isHostedRelay(_ relay: URL) -> Bool {
+        var host = relay.host()?.lowercased() ?? ""
+        if host.hasSuffix(".") { host.removeLast() }
+        return hostedRelayHosts.contains(host)
+    }
+
+    /// Whether two relay addresses reach the same relay: ours under either address, or the same address.
+    public static func isSameRelay(_ one: URL, _ other: URL) -> Bool {
+        (isHostedRelay(one) && isHostedRelay(other)) || one == other
+    }
+
     public static let urlScheme = id
 
     public static func keychainService(_ item: String) -> String {

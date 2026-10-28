@@ -1,7 +1,7 @@
 // pam-check: runs PAM authentication, to check the PAM module (pam_module.c) before sudo relies on it.
 //
 //   pam-check <service> <user>              pam_start + pam_authenticate with /etc/pam.d/<service> (needs root)
-//   pam-check --direct <module> [args...]   loads the module itself and calls it as sudo would (no root needed;
+//   pam-check --direct <module> [args...]   loads the module itself and calls it like sudo would (no root needed;
 //                                           for testing against a checker run with --approvers/--socket)
 //
 // Messages from the modules are printed; password prompts are refused. Exits 0 if authentication succeeded.
@@ -42,7 +42,8 @@ int main(int argc, char **argv) {
         struct passwd *account = getpwuid(getuid());
         if (account == NULL) return 2;
         const char *user = account->pw_name;
-        if ((result = pam_start("sudo", user, &conv, &pamh)) != PAM_SUCCESS) {
+        // Not "sudo": the checker only shows sudo requests that really come from sudo.
+        if ((result = pam_start("pam-check", user, &conv, &pamh)) != PAM_SUCCESS) {
             fprintf(stderr, "pam_start: %d\n", result);
             return 2;
         }

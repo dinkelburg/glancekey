@@ -25,6 +25,7 @@ type controlRequest struct {
 type deviceInfo struct {
 	ID         string     `json:"id"`
 	Name       string     `json:"name"`
+	Key        string     `json:"key,omitempty"` // keyFingerprint
 	PairedAt   time.Time  `json:"pairedAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 	// PasswordSealed: the password is sealed to this iPhone (seal.go).
@@ -70,6 +71,8 @@ type Approver struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	PublicKey []byte `json:"publicKey"`
+	// PairedAt is shown when setting up, with the key's fingerprint, so a key paired behind your back stands out.
+	PairedAt *time.Time `json:"pairedAt,omitempty"`
 }
 
 func controlSocketPath() string {
@@ -144,7 +147,8 @@ func (a *Agent) control(request controlRequest) controlResponse {
 		defer a.mu.Unlock()
 		approvers := &Approvers{MachineID: a.state.MachineID, MachineName: a.state.MachineName, Devices: []Approver{}}
 		for _, device := range a.state.Devices {
-			approvers.Devices = append(approvers.Devices, Approver{ID: device.ID, Name: device.Name, PublicKey: device.PublicKey})
+			pairedAt := device.PairedAt
+			approvers.Devices = append(approvers.Devices, Approver{ID: device.ID, Name: device.Name, PublicKey: device.PublicKey, PairedAt: &pairedAt})
 		}
 		return controlResponse{Approvers: approvers}
 	case "set-password":
@@ -192,7 +196,7 @@ func (a *Agent) status() *statusInfo {
 	}
 	for _, device := range a.state.Devices {
 		_, sealed := a.state.SealedPasswords[device.ID]
-		info.Devices = append(info.Devices, deviceInfo{device.ID, device.Name, device.PairedAt, device.LastUsedAt, sealed, device.OpenedSealed})
+		info.Devices = append(info.Devices, deviceInfo{device.ID, device.Name, keyFingerprint(device.PublicKey), device.PairedAt, device.LastUsedAt, sealed, device.OpenedSealed})
 	}
 	anySealed := len(a.state.SealedPasswords) > 0
 	a.mu.Unlock()

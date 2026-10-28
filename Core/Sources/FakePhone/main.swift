@@ -21,6 +21,9 @@ struct State: Codable {
     }
 }
 
+// The state file holds private keys: only this user may read it.
+_ = umask(0o077)
+
 let statePath = ProcessInfo.processInfo.environment["FAKE_PHONE_STATE"]
     ?? (NSHomeDirectory() as NSString).appendingPathComponent(".\(Brand.id)-fake-phone.json")
 

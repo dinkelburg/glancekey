@@ -19,6 +19,7 @@ final class LiveCardController {
         static let startDates = "liveCardStartDates"
         static let registration = "liveCardRegistration"
         static let registeredAt = "liveCardRegisteredAt"
+        static let relay = "liveCardRelay"
     }
 
     /// What the app told the relay. Sent again when it changes, and every few hours in case the relay lost it.
@@ -78,8 +79,22 @@ final class LiveCardController {
     /// Whether iOS lets the app show Live Activities (Settings › <app> › Live Activities).
     var isAllowed: Bool { ActivityAuthorizationInfo().areActivitiesEnabled }
 
-    /// The card id for the computers: "" when there's no card, so they stop updating it.
-    var cardIdForComputers: String { isEnabled && isAllowed ? cardId : "" }
+    /// The relay the card is on. One relay pushes the whole card, so it only lists the computers on that relay: ours if
+    /// any computer uses it, else the first computer's. Computers on another relay notify as usual.
+    var relay: URL? {
+        let machines = PhoneModel.shared.machines
+        return machines.first { Brand.isHostedRelay($0.relay) }?.relay ?? machines.first?.relay
+    }
+
+    func isOnCard(_ machine: PairedMachine) -> Bool {
+        relay.map { Brand.isSameRelay($0, machine.relay) } ?? false
+    }
+
+    /// The card id for a computer: "" when there's no card, or the computer isn't on it, so it stops updating it and
+    /// notifies this iPhone itself.
+    func cardId(for machine: PairedMachine) -> String {
+        isEnabled && isAllowed && isOnCard(machine) ? cardId : ""
+    }
 
     /// At launch, including when iOS starts the app in the background for a card the relay started.
     func start() {
@@ -201,7 +216,13 @@ final class LiveCardController {
     /// Tells the relay where to push the card and what it lists, when that changed.
     private func register() async {
         let model = PhoneModel.shared
-        guard let relay = model.machines.first?.relay else { return }
+        let defaults = UserDefaults.standard
+        // The card moved to another relay, or the last computer is gone: turn it off on the relay it was on.
+        if let previous = defaults.url(forKey: Defaults.relay), relay.map({ !Brand.isSameRelay($0, previous) }) ?? true {
+            guard await post(Registration(secret: secret, on: false, key: key, computers: []), to: previous) else { return }
+            for name in [Defaults.relay, Defaults.registration, Defaults.registeredAt] { defaults.removeObject(forKey: name) }
+        }
+        guard let relay else { return }
         var registration = Registration(secret: secret, on: isEnabled && isAllowed, key: key, computers: [])
         if registration.on {
             registration.computers = model.liveCardContent.computers.map { .init(id: $0.id, name: $0.name, state: $0.state.rawValue) }
@@ -213,11 +234,17 @@ final class LiveCardController {
                 registration.startedAt = startDates[activity.id].map { Int($0.timeIntervalSince1970) }
             }
         }
-        let defaults = UserDefaults.standard
         let previous = defaults.data(forKey: Defaults.registration).flatMap { try? JSONDecoder().decode(Registration.self, from: $0) }
         let registeredAt = defaults.object(forKey: Defaults.registeredAt) as? Date ?? .distantPast
         guard registration != previous || registeredAt < Date().addingTimeInterval(-6 * 3600) else { return }
+        guard await post(registration, to: relay) else { return }
+        defaults.set(try? JSONEncoder().encode(registration), forKey: Defaults.registration)
+        defaults.set(Date(), forKey: Defaults.registeredAt)
+        defaults.set(relay, forKey: Defaults.relay)
+    }
 
+    /// Whether the relay took it.
+    private func post(_ registration: Registration, to relay: URL) async -> Bool {
         var request = URLRequest(url: relay.appendingPathComponent("v1/card/\(cardId)"), timeoutInterval: 15)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -225,11 +252,8 @@ final class LiveCardController {
         // The app may be in the background, woken for a new card.
         let task = UIApplication.shared.beginBackgroundTask(withName: "Lock screen card")
         defer { UIApplication.shared.endBackgroundTask(task) }
-        guard let (_, response) = try? await URLSession.shared.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200
-        else { return }
-        defaults.set(try? JSONEncoder().encode(registration), forKey: Defaults.registration)
-        defaults.set(Date(), forKey: Defaults.registeredAt)
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
+        return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
     private static func hex(_ data: Data) -> String {

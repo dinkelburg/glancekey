@@ -128,6 +128,8 @@ struct Approvers: Codable {
         var id: String
         var name: String
         var publicKey: Data
+        /// RFC 3339, as linux/control.go's Approver has it. Shown with the key when setting up.
+        var pairedAt: String?
     }
 
     var machineId: String

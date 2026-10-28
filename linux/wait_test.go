@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/ecdh"
+	"crypto/rand"
 	"testing"
 )
 
@@ -37,8 +39,23 @@ func TestSetWaitFromTheIPhone(t *testing.T) {
 	if reloaded, _ := loadState(); reloaded.ApprovalWait != untilAnswered {
 		t.Fatal("not saved")
 	}
+	// setWait's signature doesn't cover a password key, so one a relay adds isn't registered.
+	_, hello = s.phone.call("/v1/hello", HelloRequest{DeviceID: s.phone.deviceID})
+	nonce := hello["nonce"].(string)
+	injected, _ := ecdh.P256().GenerateKey(rand.Reader)
+	if status, body := s.phone.call("/v1/command", CommandRequest{DeviceID: s.phone.deviceID, Action: actionSetWait, Nonce: nonce,
+		Wait: 300, PasswordKey: b64(injected.PublicKey().Bytes()),
+		Signature: s.phone.signMessage(waitMessage(s.agent.state.MachineID, s.phone.deviceID, nonce, 300))}); status != 200 {
+		t.Fatalf("setWait with a password key: %d %v", status, body)
+	}
+	s.agent.mu.Lock()
+	registered := len(s.agent.state.Devices[0].PasswordKey) > 0
+	s.agent.mu.Unlock()
+	if registered {
+		t.Fatal("registered a password key that setWait's signature didn't cover")
+	}
 	// A relay that changes the value fails the signature; a value that isn't offered is refused.
-	if status, _ := send(300, 60); status != 403 || s.agent.approvalWait() != untilAnswered {
+	if status, _ := send(900, 60); status != 403 || s.agent.approvalWait() != 300 {
 		t.Fatalf("changed value: %d", status)
 	}
 	if status, _ := send(42, 42); status != 400 {

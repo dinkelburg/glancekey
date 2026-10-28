@@ -159,9 +159,9 @@ final class PhoneModel: ObservableObject {
     func refresh() async {
         // Sending "" when notifications or the card are off makes the computers forget them.
         let token = notificationsEnabled ? pushToken : ""
-        let card = LiveCardController.shared.cardIdForComputers
         let results = await withTaskGroup(of: (PairedMachine, Result<HelloResponse, Error>).self) { group in
             for machine in machines {
+                let card = LiveCardController.shared.cardId(for: machine)
                 group.addTask {
                     do {
                         return (machine, .success(try await machine.client.hello(deviceId: machine.deviceId, pushToken: token, cardId: card)))
@@ -190,7 +190,9 @@ final class PhoneModel: ObservableObject {
 
     /// What the lock screen card shows, as far as the app knows.
     var liveCardContent: LiveCardAttributes.ContentState {
-        let computers = machines.map { machine -> LiveCardAttributes.ContentState.Computer in
+        // Only the computers on the card's relay, which pushes the whole card.
+        let onCard = machines.filter { LiveCardController.shared.isOnCard($0) }
+        let computers = onCard.map { machine -> LiveCardAttributes.ContentState.Computer in
             let status = statuses[machine.machineId]
             let state: LiveCardAttributes.ContentState.Computer.State = switch (status?.error, status?.locked) {
             case (.some, _): .offline
@@ -200,7 +202,7 @@ final class PhoneModel: ObservableObject {
             }
             return .init(id: machine.machineId, name: machine.machineName, state: state)
         }
-        let requests = waitingApprovals.prefix(3).map {
+        let requests = waitingApprovals.filter { LiveCardController.shared.isOnCard($0.machine) }.prefix(3).map {
             LiveCardAttributes.ContentState.Request(computer: $0.machine.machineId, id: $0.approval.id, title: $0.approval.title,
                                                     detail: $0.approval.detail, until: Int($0.expiresAt.timeIntervalSince1970))
         }
@@ -558,19 +560,23 @@ final class PhoneModel: ObservableObject {
         case .open(let request):
             await refresh()
             scrollTarget = request
-        case .unlock(let computer), .lock(let computer):
+        case .unlock(let computer, let shown), .lock(let computer, let shown):
             guard let machine = machines.first(where: { $0.machineId == computer }) else { return }
             scrollTarget = computer
-            let unlocking = link == .unlock(computer: computer)
+            // Only for the computer the card named: the relay fills in the card, so it could name another.
+            guard shown == LiveCardLink.shown(machine.machineName) else { return }
+            let unlocking = link == .unlock(computer: computer, shown: shown)
             // The card shows it working too, for when you go back to the Lock Screen.
             await LiveCardController.shared.setBusy(computer, unlocking ? .unlock : .lock)
             await perform(unlocking ? .unlock : .lock, on: machine)
             await LiveCardController.shared.setBusy(computer, nil)
-        case .approve(let computer, let request):
-            // The request as the computer has it now, with its challenge; Face ID names it before anything is signed.
+        case .approve(let computer, let request, let shown):
+            // The request as the computer has it now, with its challenge.
             await refresh()
             if let waiting = waitingApprovals.first(where: { $0.machine.machineId == computer && $0.approval.id == request }) {
                 scrollTarget = request
+                // Right away only if the card showed all of it. Otherwise it's on screen here, waiting for Approve.
+                guard shown == LiveCardLink.shown(waiting.approval.title, waiting.machine.machineName) else { return }
                 await LiveCardController.shared.setBusy(request, .approve)
                 await approve(waiting)
                 await LiveCardController.shared.setBusy(request, nil)

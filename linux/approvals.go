@@ -102,7 +102,7 @@ func (a *Agent) serveApproval(conn net.Conn, decoder *json.Decoder, approval *Ap
 		return
 	}
 	log.Printf("Waiting for your iPhone to approve: %s", approval.Title)
-	go a.notifyPhones()
+	go a.notifyPhones(approval.ExpiresIn)
 
 	// The checker only writes again after the iPhone answered, so anything earlier means it hung up.
 	done := make(chan struct{})
@@ -237,10 +237,10 @@ func (a *Agent) answerApproval(req CommandRequest) (any, error) {
 
 // notifyPhones asks the relay to notify the paired iPhones that something is waiting. Tapping the notification
 // opens the app. An iPhone with a lock screen card is left out: its card does the notifying (card.go).
-func (a *Agent) notifyPhones() {
+func (a *Agent) notifyPhones(expiresIn int) {
 	a.mu.Lock()
 	send := a.toRelay
-	notify := Notify{MachineName: a.state.MachineName}
+	notify := Notify{MachineName: a.state.MachineName, ExpiresIn: expiresIn}
 	seen := map[string]bool{}
 	for _, device := range a.state.Devices {
 		if validPushToken(device.PushToken) && !seen[device.PushToken] && !validCardID(device.CardID) {

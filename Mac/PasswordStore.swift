@@ -24,12 +24,27 @@ enum Keychain {
     }
 
     static func loadData(_ service: String) -> Data? {
+        if case .found(let data) = lookup(service) { return data }
+        return nil
+    }
+
+    enum Lookup {
+        case found(Data)
+        case missing
+        /// Couldn't read it (for example when you denied access): it may well be there.
+        case failed(OSStatus)
+    }
+
+    static func lookup(_ service: String) -> Lookup {
         var request = query(service)
         request[kSecReturnData as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(request as CFDictionary, &result) == errSecSuccess else { return nil }
-        return result as? Data
+        switch SecItemCopyMatching(request as CFDictionary, &result) {
+        case errSecSuccess: return (result as? Data).map(Lookup.found) ?? .failed(errSecDecode)
+        case errSecItemNotFound: return .missing
+        case let status: return .failed(status)
+        }
     }
 
     static func save(_ value: String, service: String, label: String) throws {

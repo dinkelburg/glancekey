@@ -1,5 +1,6 @@
 import ActivityKit
 import AppCore
+import CryptoKit
 import Foundation
 
 // The lock screen card, a Live Activity: the paired computers, whether each is locked, and the requests waiting for
@@ -59,13 +60,20 @@ struct LiveCardAttributes: ActivityAttributes {
 
 /// The card's buttons, and tapping a request, open the app with one of these links. They carry the
 /// card's key, which only the app, the relay and the card know, so the app only acts on links from its own card and
-/// not on one that a web page opens.
+/// not on one that a web page opens. The buttons also carry `shown`, a digest of what the card showed next to them
+/// (`shown(_:)`): the app only acts right away when that's what it's about to sign. Otherwise (the command didn't fit on
+/// the card, or the relay put other text there) it opens the request or computer and waits for a tap.
 enum LiveCardLink: Equatable {
     /// Opens the app, at a request if there is one.
     case open(request: String?)
-    case unlock(computer: String)
-    case lock(computer: String)
-    case approve(computer: String, request: String)
+    case unlock(computer: String, shown: String?)
+    case lock(computer: String, shown: String?)
+    case approve(computer: String, request: String, shown: String?)
+
+    /// A digest of the text the card showed in full.
+    static func shown(_ texts: String...) -> String {
+        SHA256.hash(data: Data(texts.joined(separator: "\n").utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+    }
 
     func url(key: String) -> URL {
         var components = URLComponents()
@@ -74,13 +82,21 @@ enum LiveCardLink: Equatable {
         var items: [URLQueryItem]
         switch self {
         case .open(let request): items = [.init(name: "do", value: "open")] + (request.map { [.init(name: "request", value: $0)] } ?? [])
-        case .unlock(let computer): items = [.init(name: "do", value: "unlock"), .init(name: "computer", value: computer)]
-        case .lock(let computer): items = [.init(name: "do", value: "lock"), .init(name: "computer", value: computer)]
-        case .approve(let computer, let request):
+        case .unlock(let computer, _): items = [.init(name: "do", value: "unlock"), .init(name: "computer", value: computer)]
+        case .lock(let computer, _): items = [.init(name: "do", value: "lock"), .init(name: "computer", value: computer)]
+        case .approve(let computer, let request, _):
             items = [.init(name: "do", value: "approve"), .init(name: "computer", value: computer), .init(name: "request", value: request)]
         }
+        if let shown { items.append(.init(name: "shown", value: shown)) }
         components.queryItems = items + [.init(name: "key", value: key)]
         return components.url!
+    }
+
+    private var shown: String? {
+        switch self {
+        case .open: nil
+        case .unlock(_, let shown), .lock(_, let shown), .approve(_, _, let shown): shown
+        }
     }
 
     /// nil if `url` isn't a card link, or doesn't carry `key`.
@@ -92,9 +108,9 @@ enum LiveCardLink: Equatable {
         guard !key.isEmpty, value("key") == key else { return nil }
         switch (value("do"), value("computer"), value("request")) {
         case ("open", _, let request): self = .open(request: request)
-        case ("unlock", let computer?, _): self = .unlock(computer: computer)
-        case ("lock", let computer?, _): self = .lock(computer: computer)
-        case ("approve", let computer?, let request?): self = .approve(computer: computer, request: request)
+        case ("unlock", let computer?, _): self = .unlock(computer: computer, shown: value("shown"))
+        case ("lock", let computer?, _): self = .lock(computer: computer, shown: value("shown"))
+        case ("approve", let computer?, let request?): self = .approve(computer: computer, request: request, shown: value("shown"))
         default: return nil
         }
     }

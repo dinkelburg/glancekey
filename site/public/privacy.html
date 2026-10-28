@@ -45,7 +45,7 @@
     <p>Your iPhone and your computers talk through a relay at relay.glancekey.com, which runs on Cloudflare. All traffic to it is encrypted.</p>
     <ul>
       <li><strong>What passes through:</strong> the messages between your iPhone and your computers, such as whether a computer is locked, unlock commands, and approval requests, which include the command or dialog that’s waiting for you. If you turn notifications on, also your iPhone’s notification address and the name of the computer that’s waiting. If you show the Lock Screen card, also what it shows (see below). Unlocking and approving are signed by your iPhone and checked by your computer, so the relay can’t fake or change them. It could decline a request or stop passing messages on.</li>
-      <li><strong>What it stores:</strong> one thing per computer, a one-way fingerprint of the secret the computer uses to claim its place on the relay. The messages themselves aren’t stored, apart from what your Lock Screen card shows, while you have it on (see below).</li>
+      <li><strong>What it stores:</strong> for each computer, its random ID, a one-way fingerprint of the secret it uses to claim its place on the relay, and the IDs of the Lock Screen cards it updates. To limit how many notifications one iPhone can get, the relay also counts them for an hour, under a one-way fingerprint of the iPhone’s notification address. The messages themselves aren’t stored, apart from what your Lock Screen card shows, while you have it on (see below).</li>
       <li><strong>Cloudflare:</strong> like any network, Cloudflare processes connection data such as IP addresses to deliver traffic, and keeps the relay’s request logs for a few days for troubleshooting. See <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare’s privacy policy</a>.</li>
     </ul>
     <p>You can run your own relay instead. Then nothing passes through ours.</p>
@@ -61,10 +61,10 @@
     <p>The card on your Lock Screen is optional, and on unless you turn it off in the app. To keep it up to date while the app is closed, the relay keeps what the card shows and asks Apple to deliver each change to your iPhone:</p>
     <ul>
       <li>the names of your paired computers and whether each is locked or offline, until you turn the card off;</li>
-      <li>a request waiting for your approval, including its command or dialog, until it’s answered or expires, which takes at most two minutes;</li>
+      <li>a request waiting for your approval, including its command or dialog and your username on that computer, until it’s answered or stops waiting: 30 seconds unless you choose a longer wait, and at most 24 hours when it waits until you answer;</li>
       <li>the addresses Apple gives your iPhone for the card, a random key the card’s buttons carry, and, if you turn notifications on, your iPhone’s notification address, for when there’s no card to show a request.</li>
     </ul>
-    <p>Turning the card off deletes all of it from the relay. Apple’s <a href="https://www.apple.com/legal/privacy/">privacy policy</a> applies to the delivery.</p>
+    <p>Turning the card off, or removing your last computer, deletes all of it from the relay, and the relay ignores your computers’ updates from then on. Apple’s <a href="https://www.apple.com/legal/privacy/">privacy policy</a> applies to the delivery.</p>
 
     <h2>Crash reports</h2>
     <p>If you chose to share analytics with app developers in your iPhone’s settings, Apple may pass anonymous crash reports on to us. You can turn this off in Settings › Privacy &amp; Security › Analytics &amp; Improvements.</p>

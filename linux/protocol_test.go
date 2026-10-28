@@ -152,3 +152,17 @@ func TestWaitMessageMatchesSwift(t *testing.T) {
 		t.Fatalf("%+v", request)
 	}
 }
+
+// Core's PairedDevice.keyFingerprint and RelayNotification pin the same values.
+func TestKeyFingerprintMatchesSwift(t *testing.T) {
+	if got := keyFingerprint([]byte("test")); got != "9F86-D081-884C" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestNotifyJSONMatchesSwift(t *testing.T) {
+	data, _ := json.Marshal(RelayNotification{Notify: Notify{MachineName: "Mac", PushTokens: []string{"t"}, ExpiresIn: 900}})
+	if string(data) != `{"notify":{"machineName":"Mac","pushTokens":["t"],"expiresIn":900}}` {
+		t.Fatalf("got %s", data)
+	}
+}

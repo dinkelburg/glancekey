@@ -76,11 +76,12 @@ func runChecker(args []string) int {
 	defer close(done)
 	go exitWithParent(parent, done)
 
-	args, env, err := processInfo(parent)
+	args, env, err := requesterInfo(parent)
 	if err != nil {
 		logger.Printf("couldn't read the requesting process: %v", err)
 	}
-	args = withoutEmulator(args)
+	executable, _ := executableOf(parent)
+	args = withoutEmulator(executable, args)
 	if !*allowRemote && (isRemote(env) || remoteAncestor(parent)) {
 		return 1
 	}
@@ -272,7 +273,13 @@ func checkTree(path string) error {
 	case info.Mode().Perm()&0o022 != 0:
 		return fmt.Errorf("%s must not be writable by others", path)
 	}
-	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
+	return checkFolders(filepath.Dir(path))
+}
+
+// checkFolders: dir and every folder above it belong to root (or whoever runs this) and nobody else can write to
+// them, so nobody else can swap what's inside.
+func checkFolders(dir string) error {
+	for ; ; dir = filepath.Dir(dir) {
 		info, err := os.Stat(dir)
 		if err != nil {
 			return err
@@ -354,11 +361,15 @@ func remoteAncestor(pid int) bool {
 	return false
 }
 
+// requesterInfo reads the requesting process's arguments and environment; tests replace it.
+var requesterInfo = processInfo
+
 // withoutEmulator drops the interpreter that binfmt emulation (Rosetta in Docker on a Mac, qemu-user) puts in
-// front of the arguments: [/run/rosetta/rosetta, /usr/sbin/sudo, sudo, -k, …].
-func withoutEmulator(args []string) []string {
+// front of the arguments: [/run/rosetta/rosetta, /usr/sbin/sudo, sudo, -k, …]. It goes by the program the process
+// runs, never by the first argument, which whoever starts sudo chooses.
+func withoutEmulator(executable string, args []string) []string {
 	if len(args) >= 3 {
-		if base := filepath.Base(args[0]); base == "rosetta" || strings.HasPrefix(base, "qemu-") {
+		if base := filepath.Base(executable); base == "rosetta" || strings.HasPrefix(base, "qemu-") {
 			return args[2:]
 		}
 	}
@@ -411,24 +422,44 @@ func sudoLongOptionTakesValue(option string) bool {
 	return false
 }
 
-var errTitleTooLong = errors.New("the command is too long to show on your iPhone in full; type your password.")
+var (
+	errTitleTooLong   = errors.New("the command is too long to show on your iPhone in full; type your password.")
+	errUnknownCommand = errors.New("couldn't tell which command this is; type your password.")
+)
+
+// polkitTitle: polkit doesn't tell PAM what the dialog is for, so the iPhone can only say where to look.
+const polkitTitle = "Password dialog (check your screen for what it's for)"
 
 // describeRequest makes the one-line title and detail the iPhone shows (and signs). The title shows the whole
 // command or nothing: a command that doesn't fit gets the password prompt instead, rather than an approval for
 // a beginning that could hide what follows.
 func describeRequest(service, username, tty string, args []string) (title, detail string, err error) {
 	switch {
-	case strings.HasPrefix(service, "sudo") && len(args) > 0:
-		words := []string{"sudo"}
+	case strings.HasPrefix(service, "sudo"):
+		// Only sudo's own arguments: anything else (unreadable, or a first argument that isn't sudo) could make
+		// the iPhone show something other than what runs.
+		if len(args) == 0 {
+			return "", "", errUnknownCommand
+		}
+		var words []string
+		switch filepath.Base(args[0]) {
+		case "sudo", "sudo-rs":
+			words = []string{"sudo"}
+		case "sudoedit":
+			words = []string{"sudoedit"}
+		default:
+			return "", "", errUnknownCommand
+		}
 		for _, arg := range args[1:] {
-			if arg == "" || strings.IndexFunc(arg, needsQuotes) >= 0 {
-				arg = strconv.Quote(arg)
+			if arg == "" || !utf8.ValidString(arg) || strings.IndexFunc(arg, needsQuotes) >= 0 {
+				// strconv.Quote leaves the replacement character as it is, and oneLine would make it a space.
+				arg = strings.ReplaceAll(strconv.Quote(arg), "\uFFFD", `\ufffd`)
 			}
 			words = append(words, arg)
 		}
 		title = strings.Join(words, " ")
 	case service == "polkit-1":
-		title = "Administrator access (system dialog)"
+		title = polkitTitle
 	case service != "":
 		title = service + " password prompt"
 	default:
@@ -445,9 +476,10 @@ func describeRequest(service, username, tty string, args []string) (title, detai
 }
 
 // needsQuotes: characters that would make an argument look like something else, from spaces to invisible ones
-// such as right-to-left overrides and zero-width spaces. strconv.Quote shows those as escapes like \u202e.
+// such as right-to-left overrides and zero-width spaces, and the replacement character, which oneLine turns into a
+// space. strconv.Quote shows those as escapes like \u202e.
 func needsQuotes(r rune) bool {
-	return r <= ' ' || strings.ContainsRune(`'"\`, r) || unicode.IsSpace(r) || !unicode.IsGraphic(r)
+	return r <= ' ' || strings.ContainsRune(`'"\`, r) || unicode.IsSpace(r) || !unicode.IsGraphic(r) || r == utf8.RuneError
 }
 
 // oneLine replaces control characters and line separators with spaces and shortens to limit characters.

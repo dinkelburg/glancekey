@@ -92,9 +92,14 @@ enum PasswordDialog {
         if field == nil, let button = mainButton(in: window) {
             // A Touch ID dialog: "Use Password…" shows the password field.
             AXUIElementPerformAction(button, kAXPressAction as CFString)
+            // The field usually appears in the same window. If that window was replaced instead, only a single new one
+            // with the same first line counts, so the password can't go into another dialog that appeared meanwhile.
             for _ in 0..<20 where field == nil {
                 await pause(0.1)
-                field = window.all(where: \.isSecureField).first ?? approvedWindow(dialog)?.all(where: \.isSecureField).first
+                field = window.all(where: \.isSecureField).first
+                if field == nil, window.role == nil, dialogWindows(pid: dialog.pid).count == 1 {
+                    field = approvedWindow(dialog)?.all(where: \.isSecureField).first
+                }
             }
         }
         guard let field, let fieldWindow = field.element(kAXWindowAttribute) ?? approvedWindow(dialog) else {
@@ -167,10 +172,14 @@ enum PasswordDialog {
     // MARK: - Accessibility
 
     private static func dialogWindow(pid: pid_t) -> AXUIElement? {
+        dialogWindows(pid: pid).first
+    }
+
+    private static func dialogWindows(pid: pid_t) -> [AXUIElement] {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 1)
         let windows = app.attribute(kAXWindowsAttribute) as? [AXUIElement] ?? []
-        return windows.first { !$0.all(where: \.isSecureField).isEmpty || mainButton(in: $0) != nil }
+        return windows.filter { !$0.all(where: \.isSecureField).isEmpty || mainButton(in: $0) != nil }
     }
 
     /// The dialog's only button besides Cancel: "Use Password…" in a Touch ID dialog, else OK or Allow Access.

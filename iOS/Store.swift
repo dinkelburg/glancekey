@@ -54,8 +54,9 @@ final class Store: ObservableObject {
     func refresh() async {
         var active = false
         for await entitlement in Transaction.currentEntitlements {
+            // Expired subscriptions aren't listed, apart from those in Apple's billing grace period, which still count.
             if case .verified(let transaction) = entitlement, Self.productIDs.contains(transaction.productID),
-               transaction.revocationDate == nil, (transaction.expirationDate ?? .distantFuture) > .now {
+               transaction.revocationDate == nil {
                 active = true
             }
         }
@@ -78,7 +79,7 @@ final class Store: ObservableObject {
 
     /// Whether the free limits apply to a computer on `relay`.
     func isLimited(_ relay: URL) -> Bool {
-        !isUnlimited && Brand.hostedRelayHosts.contains(relay.host()?.lowercased() ?? "")
+        !isUnlimited && Brand.isHostedRelay(relay)
     }
 
     /// Unlocks and approvals used today, on computers with limits.

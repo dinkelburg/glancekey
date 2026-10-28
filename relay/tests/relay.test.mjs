@@ -30,6 +30,7 @@ const relay = new Miniflare(convertV4MiniflareOptions({
   durableObjects: {
     MACHINES: { className: "Machine", useSQLite: true },
     CARDS: { className: "Card", useSQLite: true },
+    RECIPIENTS: { className: "Recipient", useSQLite: true },
   },
   bindings: {
     APNS_KEY: apnsKey.privateKey.export({ type: "pkcs8", format: "pem" }),
@@ -41,6 +42,8 @@ const relay = new Miniflare(convertV4MiniflareOptions({
   outboundService: apns,
 }));
 after(() => relay.dispose());
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function connect(machineId, secret = "a".repeat(32)) {
   const response = await relay.dispatchFetch(`http://localhost/v1/agent/${machineId}`, {
@@ -197,6 +200,37 @@ test("a computer can only send a few notifications a minute", { timeout: 5000 },
   }
 });
 
+test("a notification lasts as long as the request waits", { timeout: 5000 }, async () => {
+  const socket = await connect(crypto.randomUUID());
+  const token = "b1".repeat(32), older = "b2".repeat(32);
+  try {
+    socket.send(JSON.stringify({ notify: { machineName: "Mac", pushTokens: [token], expiresIn: 900 } }));
+    const [push] = await pushesFor(token, 1);
+    assert.ok(Math.abs(Number(push.headers.get("apns-expiration")) - (Date.now() / 1000 + 900)) < 5);
+    // A computer from before expiresIn: two minutes.
+    socket.send(JSON.stringify({ notify: { machineName: "Mac", pushTokens: [older] } }));
+    const [old] = await pushesFor(older, 1);
+    assert.ok(Math.abs(Number(old.headers.get("apns-expiration")) - (Date.now() / 1000 + 120)) < 5);
+  } finally {
+    socket.close(1000);
+  }
+});
+
+test("new machine ids can't send one iPhone more than a few notifications a minute", { timeout: 8000 }, async () => {
+  const token = "a0".repeat(32);
+  const sockets = await Promise.all([1, 2, 3].map(() => connect(crypto.randomUUID())));
+  try {
+    for (const socket of sockets) {
+      for (let i = 0; i < 6; i++) socket.send(JSON.stringify({ notify: { machineName: "Mac", pushTokens: [token] } }));
+    }
+    await pushesFor(token, 10);
+    await sleep(500);
+    assert.equal((await pushesFor(token, 10)).length, 10);
+  } finally {
+    for (const socket of sockets) socket.close(1000);
+  }
+});
+
 // MARK: - Lock screen cards
 
 function newCard() {
@@ -211,7 +245,6 @@ async function register(card, body) {
   });
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const liveToken = () => [...crypto.getRandomValues(new Uint8Array(40))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 test("only the iPhone with the card's secret can register it", { timeout: 5000 }, async () => {
@@ -317,6 +350,45 @@ test("turning the card off ends it and drops the computer from it", { timeout: 1
     assert.equal((await pushesFor(token, 1)).length, 1);
   } finally {
     socket.close(1000);
+  }
+});
+
+test("after the card is turned off, a computer's part isn't kept", { timeout: 10000 }, async () => {
+  const card = newCard();
+  const machineId = crypto.randomUUID(), otherId = crypto.randomUUID();
+  await register(card, { computers: [{ id: machineId, name: "Mac", state: "unknown" }] });
+  await relay.dispatchFetch(`http://localhost/v1/card/${card.id}`, { method: "POST", body: JSON.stringify({ secret: card.secret, on: false }) });
+  const mac = await connect(machineId), other = await connect(otherId);
+  try {
+    // Sent before the computer heard the card is off.
+    mac.send(JSON.stringify({ card: { cards: [card.id], locked: true, approvals: [{ id: "a1", title: "sudo secret", detail: "", expiresIn: 600 }] } }));
+    await sleep(500);
+    const token = liveToken();
+    await register(card, {
+      computers: [{ id: machineId, name: "Mac", state: "unknown" }, { id: otherId, name: "Omarchy", state: "unknown" }],
+      updateToken: token, startedAt: Date.now() / 1000,
+    });
+    other.send(JSON.stringify({ card: { cards: [card.id], locked: false, approvals: [] } }));
+    const [push] = await pushesFor(token, 1, 3000);
+    assert.equal(push.body.aps["content-state"].computers[0].state, "unknown");
+    assert.deepEqual(push.body.aps["content-state"].requests, []);
+  } finally {
+    mac.close(1000);
+    other.close(1000);
+  }
+});
+
+test("a computer the card doesn't list can't push it", { timeout: 10000 }, async () => {
+  const card = newCard();
+  const token = liveToken();
+  await register(card, { computers: [{ id: crypto.randomUUID(), name: "Mac", state: "unknown" }], updateToken: token, startedAt: Date.now() / 1000 });
+  const stranger = await connect(crypto.randomUUID());
+  try {
+    stranger.send(JSON.stringify({ card: { cards: [card.id], locked: true, approvals: [{ id: "a1", title: "sudo x", detail: "", expiresIn: 60 }] } }));
+    await sleep(1500);
+    assert.equal(pushes.filter((push) => push.url.pathname === `/3/device/${token}`).length, 0);
+  } finally {
+    stranger.close(1000);
   }
 });
 

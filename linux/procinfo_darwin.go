@@ -10,22 +10,25 @@ import (
 )
 
 // processInfo returns a process's arguments and environment (root can read any process's). kern.procargs2
-// holds argc, the executable path, padding, then the arguments and the environment, all NUL-terminated.
+// holds argc, the executable path, NULs up to a multiple of 8 bytes, then the arguments and the environment, all
+// NUL-terminated. The arguments start exactly there: skipping every NUL instead would also skip an empty first
+// argument and shift the rest, so the iPhone would show a different command than the one that runs.
 func processInfo(pid int) ([]string, map[string]string, error) {
-	buffer, err := unix.SysctlRaw("kern.procargs2", pid)
+	buffer, err := procargs2(pid)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(buffer) < 4 {
-		return nil, nil, errors.New("short kern.procargs2")
-	}
 	argc := int(binary.LittleEndian.Uint32(buffer[:4]))
 	rest := buffer[4:]
-	if end := bytes.IndexByte(rest, 0); end >= 0 {
-		rest = rest[end:]
+	end := bytes.IndexByte(rest, 0)
+	start := (end + 8) &^ 7
+	if end < 0 || start > len(rest) || len(bytes.Trim(rest[end:start], "\x00")) > 0 {
+		return nil, nil, errors.New("unexpected kern.procargs2")
 	}
-	rest = bytes.TrimLeft(rest, "\x00")
-	parts := bytes.Split(rest, []byte{0})
+	parts := bytes.Split(rest[start:], []byte{0})
+	if len(parts) < argc {
+		return nil, nil, errors.New("short kern.procargs2")
+	}
 	var args []string
 	env := map[string]string{}
 	for i, part := range parts {
@@ -41,6 +44,24 @@ func processInfo(pid int) ([]string, map[string]string, error) {
 		}
 	}
 	return args, env, nil
+}
+
+// executableOf returns the program a process runs, the path kern.procargs2 starts with.
+func executableOf(pid int) (string, error) {
+	buffer, err := procargs2(pid)
+	if err != nil {
+		return "", err
+	}
+	path, _, _ := bytes.Cut(buffer[4:], []byte{0})
+	return string(path), nil
+}
+
+func procargs2(pid int) ([]byte, error) {
+	buffer, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err == nil && len(buffer) < 4 {
+		err = errors.New("short kern.procargs2")
+	}
+	return buffer, err
 }
 
 // parentOf returns a process's parent and command name.

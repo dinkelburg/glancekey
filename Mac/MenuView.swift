@@ -183,24 +183,37 @@ private struct DevicesSection: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(model.devices) { device in
+                let confirming = model.devicesToConfirm.contains(device.id)
                 HStack {
                     Image(systemName: "iphone")
                     VStack(alignment: .leading, spacing: 1) {
                         Text(device.name)
-                        if let trusted = model.trustedDeviceIds, !trusted.contains(device.id) {
+                        // Every iPhone is called "iPhone": the key tells them apart. The iPhone app shows its own on
+                        // this Mac's page.
+                        Text("Key \(device.keyFingerprint) · paired \(device.pairedAt.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        if confirming {
+                            Text("Is this your iPhone? Check that \(Brand.name) on it shows the same key on this Mac's page.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else if let trusted = model.trustedDeviceIds, !trusted.contains(device.id) {
                             // Not paired through this app: something else added it. See PasswordStore.
                             Text("Not confirmed on this Mac, so it can't unlock or approve. Remove it, and pair again if it's yours.")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                                 .fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            Text(device.lastUsedAt.map { "Last used \($0.formatted(.relative(presentation: .named)))" }
-                                ?? "Paired \(device.pairedAt.formatted(date: .abbreviated, time: .shortened))")
+                        } else if let used = device.lastUsedAt {
+                            Text("Last used \(used.formatted(.relative(presentation: .named)))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
                     Spacer()
+                    if confirming {
+                        Button("Trust") { Task { await model.trust(device) } }
+                    }
                     Button {
                         model.remove(device)
                     } label: {

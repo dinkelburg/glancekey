@@ -8,8 +8,9 @@ import { DurableObject } from "cloudflare:workers";
 // computer, and pairing proves knowledge of the QR code without sending it. The relay only routes.
 //
 // It also sends the iPhone's notifications: when a computer waits for an approval, it sends
-// {"notify": {"machineName", "pushTokens"}} over its WebSocket and the relay pushes "<machineName> is waiting for
-// you" through Apple's push service (APNs), signed with the app's APNs key. Neither is stored.
+// {"notify": {"machineName", "pushTokens", "expiresIn"}} over its WebSocket and the relay pushes "<machineName> is
+// waiting for you" through Apple's push service (APNs), signed with the app's APNs key. Neither is stored; a
+// `Recipient` per iPhone only counts the last hour's notifications under the address's SHA-256, to limit them.
 //
 // And it keeps the iPhones' lock screen cards (Live Activities) up to date. Each card has its own Durable Object
 // (`Card`): the iPhone POSTs /v1/card/<cardId> with where to push it and which computers it lists, and each computer
@@ -25,6 +26,7 @@ const APP_NAME = "GlanceKey";
 export interface Env {
   MACHINES: DurableObjectNamespace<Machine>;
   CARDS: DurableObjectNamespace<Card>;
+  RECIPIENTS: DurableObjectNamespace<Recipient>;
   /// The APNs key (the .p8 file's contents), a secret: `npx wrangler secret put APNS_KEY < AuthKey_<id>.p8`.
   /// Without it the relay sends no notifications.
   APNS_KEY?: string;
@@ -55,6 +57,11 @@ const PUSH_TOKEN = /^[0-9A-Fa-f]{64,200}$/;
 const MAX_PUSH_TOKENS = 10;
 /// Notifications a computer may send per minute. Each one is a password prompt, so a few are plenty.
 const MAX_NOTIFICATIONS_PER_MINUTE = 6;
+/// Notifications one iPhone gets from all computers together, per minute and per hour: a computer that once had its
+/// address could otherwise send more from new machine ids.
+const MAX_NOTIFICATIONS_PER_IPHONE = { minute: 10, hour: 60 };
+/// How long Apple keeps trying to deliver a notification, if the computer doesn't say how long its request waits.
+const DEFAULT_NOTIFICATION_SECONDS = 120;
 /// A card's id: the SHA-256 (hex) of a secret only the iPhone knows (Core/Sources/AppCore/Protocol.swift, CardId).
 const CARD_ID = /^[0-9a-f]{64}$/;
 /// Card updates a computer may send per minute. They come when it locks, unlocks or a request comes or goes.
@@ -210,7 +217,7 @@ export class Machine extends DurableObject<Env> {
   /// Pushes "<machineName> is waiting for you" to the iPhones the computer named. Only the computer's own
   /// connection gets here, and the text is fixed apart from its name, so it can't push anything else.
   private async notify(request: unknown): Promise<void> {
-    const { machineName, pushTokens } = (request ?? {}) as { machineName?: unknown; pushTokens?: unknown };
+    const { machineName, pushTokens, expiresIn } = (request ?? {}) as { machineName?: unknown; pushTokens?: unknown; expiresIn?: unknown };
     if (typeof machineName !== "string" || !machineName.trim() || !Array.isArray(pushTokens)) return;
     const tokens = [...new Set(pushTokens.filter((token): token is string => typeof token === "string" && PUSH_TOKEN.test(token)))];
     if (tokens.length === 0) return;
@@ -224,8 +231,15 @@ export class Machine extends DurableObject<Env> {
     if (this.notifiedAt.length >= MAX_NOTIFICATIONS_PER_MINUTE) return;
     this.notifiedAt.push(now);
 
+    // Within what each iPhone may get from all computers together.
+    const allowed: string[] = [];
+    await Promise.all(tokens.map(async (token) => {
+      const recipient = this.env.RECIPIENTS.get(this.env.RECIPIENTS.idFromName(await sha256(token)));
+      if (await recipient.allow()) allowed.push(token);
+    }));
+    if (allowed.length === 0) return;
     // A newer notification for this computer replaces the previous one.
-    await sendNotification(this.env, tokens, machineName, this.ctx.id.toString());
+    await sendNotification(this.env, allowed, machineName, this.ctx.id.toString(), notificationSeconds(expiresIn));
   }
 
   /// The computer's part of its iPhones' lock screen cards: passed on to each card, and to cards it no longer lists
@@ -272,6 +286,26 @@ export class Machine extends DurableObject<Env> {
       }
     }
     return newest;
+  }
+}
+
+/// One iPhone's notification address, by its SHA-256: counts the notifications sent to it in the last hour, so all
+/// computers together stay within MAX_NOTIFICATIONS_PER_IPHONE. Keeps nothing else, and nothing older than an hour.
+export class Recipient extends DurableObject<Env> {
+  async allow(): Promise<boolean> {
+    const now = Date.now();
+    const sent = (await this.ctx.storage.get<number[]>("sent") ?? []).filter((time) => now - time < 3600_000);
+    const lastMinute = sent.filter((time) => now - time < 60_000).length;
+    const allowed = lastMinute < MAX_NOTIFICATIONS_PER_IPHONE.minute && sent.length < MAX_NOTIFICATIONS_PER_IPHONE.hour;
+    if (allowed) sent.push(now);
+    await this.ctx.storage.put("sent", sent);
+    await this.ctx.storage.setAlarm(now + 3600_000);
+    return allowed;
+  }
+
+  /// An hour after the last notification: forget the address.
+  async alarm(): Promise<void> {
+    await this.ctx.storage.deleteAll();
   }
 }
 
@@ -332,7 +366,6 @@ const MAX_CARD_COMPUTERS = 8;
 /// The longest a request waits: "until answered" (ApprovalWait in Core/Sources/AppCore/Protocol.swift).
 const MAX_APPROVAL_WAIT_SECONDS = 24 * 60 * 60;
 const MAX_CARD_REQUESTS = 3;
-const MAX_CARD_ENTRIES = 16;
 const MAX_REGISTRATIONS_PER_MINUTE = 20;
 const LIVE_ACTIVITY_TOKEN = /^[0-9A-Fa-f]{32,1024}$/;
 const CARD_KEY = /^[A-Za-z0-9_-]{16,64}$/;
@@ -412,8 +445,11 @@ export class Card extends DurableObject<Env> {
     return json(200, { ok: true });
   }
 
-  /// A computer's part, from its Machine. null: it went offline; undefined: it left the card.
+  /// A computer's part, from its Machine. null: it went offline; undefined: it left the card. Only computers the
+  /// iPhone lists count: after the card is turned off (nothing registered) nothing is kept, and others can't push it.
   async update(machineId: string, entry: CardEntry | null | undefined): Promise<void> {
+    const settings = await this.ctx.storage.get<CardSettings>("settings");
+    if (!settings?.computers.some((computer) => computer.id === machineId)) return;
     const entries = await this.entries();
     const before = entries[machineId];
     const now = Math.floor(Date.now() / 1000);
@@ -426,17 +462,12 @@ export class Card extends DurableObject<Env> {
       entries[machineId] = { ...entry, online: true, at: now };
     }
     if (sameEntry(before, entries[machineId])) return;
-    // Keep the newest few, so computers that aren't on the card can't fill it up.
-    const ids = Object.keys(entries).sort((a, b) => entries[b].at - entries[a].at);
-    for (const id of ids.slice(MAX_CARD_ENTRIES)) delete entries[id];
     await this.ctx.storage.put("entries", entries);
 
     // Worth lighting up the iPhone for (and starting a new card): a computer that's now locked, or a new request.
-    const settings = await this.ctx.storage.get<CardSettings>("settings");
-    const listed = settings?.computers.some((computer) => computer.id === machineId) ?? false;
     const newlyLocked = entry?.locked === true && (!before || !before.online || before.locked !== true);
     const newRequest = entry?.approvals.some((waiting) => !before?.approvals.some((old) => old.id === waiting.id)) ?? false;
-    if (listed && (newlyLocked || newRequest)) {
+    if (newlyLocked || newRequest) {
       await this.ctx.storage.put("news", newRequest ? { machineId, reason: "request" } : { machineId, reason: "locked" });
     }
     await this.schedulePush();
@@ -490,7 +521,7 @@ export class Card extends DurableObject<Env> {
         // The card ended (swiped away, or iOS ended it): start a new one with the next change worth it.
         await this.ctx.storage.put("settings", { ...settings, updateToken: undefined, startedAt: undefined });
       }
-      if (alerts && !result.ok) await this.notifyInstead(settings, name);
+      if (alerts && !result.ok) await this.notifyInstead(settings, name, news!.machineId);
       await this.ctx.storage.put("dirty", !result.ok);
       return;
     }
@@ -506,13 +537,16 @@ export class Card extends DurableObject<Env> {
         return;
       }
     }
-    if (alerts) await this.notifyInstead(settings, name);
+    if (alerts) await this.notifyInstead(settings, name, news!.machineId);
     await this.ctx.storage.put("dirty", true);
   }
 
   /// The notification a computer would have sent, for a new request when the card can't alert you itself.
-  private async notifyInstead(settings: CardSettings, machineName: string): Promise<void> {
-    if (settings.pushToken) await sendNotification(this.env, [settings.pushToken], machineName, this.ctx.id.toString());
+  private async notifyInstead(settings: CardSettings, machineName: string, machineId: string): Promise<void> {
+    if (!settings.pushToken) return;
+    const until = Math.max(0, ...((await this.entries())[machineId]?.approvals ?? []).map((waiting) => waiting.until));
+    await sendNotification(this.env, [settings.pushToken], machineName, this.ctx.id.toString(),
+      notificationSeconds(until - Math.floor(Date.now() / 1000)));
   }
 
   private async entries(): Promise<Record<string, StoredEntry>> {
@@ -597,6 +631,12 @@ function cardUpdate(request: unknown): { cards: string[]; entry: CardEntry } | u
   return { cards: ids, entry: { locked: typeof locked === "boolean" ? locked : null, approvals: waiting } };
 }
 
+/// How long Apple may keep trying to deliver a notification: as long as the request waits, within limits.
+function notificationSeconds(expiresIn: unknown): number {
+  if (typeof expiresIn !== "number" || !Number.isFinite(expiresIn) || expiresIn <= 0) return DEFAULT_NOTIFICATION_SECONDS;
+  return Math.min(Math.max(Math.round(expiresIn), 60), MAX_APPROVAL_WAIT_SECONDS);
+}
+
 /// The free limits as the app reads them: a whole number of at least 0 each, or null for no limit.
 function freeLimits(limits: Env["FREE_LIMITS"]): { computers: number | null; perDay: number | null } {
   const count = (value: unknown) => typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
@@ -611,7 +651,8 @@ function clip(text: string, limit: number): string {
 
 /// Pushes "<machineName> is waiting for you" to `tokens`. A newer one with the same `collapseId` (64 hex digits, APNs'
 /// limit) replaces the previous one.
-async function sendNotification(env: Env, tokens: string[], machineName: string, collapseId: string): Promise<void> {
+async function sendNotification(env: Env, tokens: string[], machineName: string, collapseId: string,
+                                expiresIn = DEFAULT_NOTIFICATION_SECONDS): Promise<void> {
   const { APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC } = env;
   if (!APNS_KEY || !APNS_KEY_ID || !APNS_TEAM_ID || !APNS_TOPIC) {
     console.log("Not sending a notification: the APNs key isn't set up.");
@@ -633,8 +674,8 @@ async function sendNotification(env: Env, tokens: string[], machineName: string,
       "apns-topic": APNS_TOPIC,
       "apns-push-type": "alert",
       "apns-priority": "10",
-      // Requests stop waiting within two minutes; a later notification would point at nothing.
-      "apns-expiration": String(now + 120),
+      // Until the request stops waiting; a later notification would point at nothing.
+      "apns-expiration": String(now + expiresIn),
       "apns-collapse-id": collapseId,
     })));
   } catch (error) {

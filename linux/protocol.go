@@ -154,6 +154,8 @@ type RelayNotification struct {
 type Notify struct {
 	MachineName string   `json:"machineName"`
 	PushTokens  []string `json:"pushTokens"`
+	// ExpiresIn: seconds until the request stops waiting, so Apple can still deliver to an iPhone that was offline.
+	ExpiresIn int `json:"expiresIn,omitempty"`
 }
 
 // RelayCard is what the agent sends the relay over its WebSocket for the iPhones' lock screen cards, whenever it

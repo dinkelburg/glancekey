@@ -19,25 +19,40 @@ public struct FreeLimits: Codable, Equatable, Sendable {
 }
 
 /// The unlocks and approvals counted today. The iPhone counts them itself, so they never leave it; a new day (in the
-/// iPhone's time zone) starts again from zero.
+/// iPhone's time zone) starts again from zero. The last few days stay counted too, so setting the clock back to one of
+/// them doesn't start it again.
 public struct DailyUse: Codable, Equatable, Sendable {
     /// The day counted, as yyyy-MM-dd.
     public var day: String
     public var count: Int
+    /// Earlier days, by yyyy-MM-dd: the newest `keptDays`.
+    public var earlier: [String: Int]?
 
-    public init(day: String = "", count: Int = 0) {
+    static let keptDays = 7
+
+    public init(day: String = "", count: Int = 0, earlier: [String: Int]? = nil) {
         self.day = day
         self.count = count
+        self.earlier = earlier
     }
 
     public func count(on date: Date, calendar: Calendar = .current) -> Int {
-        day == Self.day(of: date, calendar: calendar) ? count : 0
+        let today = Self.day(of: date, calendar: calendar)
+        return day == today ? count : earlier?[today] ?? 0
     }
 
     public mutating func add(_ uses: Int, on date: Date, calendar: Calendar = .current) {
         let today = Self.day(of: date, calendar: calendar)
-        count = (day == today ? count : 0) + uses
-        day = today
+        if day != today {
+            var days = earlier ?? [:]
+            if !day.isEmpty { days[day] = count }
+            count = days.removeValue(forKey: today) ?? 0
+            day = today
+            // yyyy-MM-dd sorts by date.
+            let kept = Set(days.keys.sorted().suffix(Self.keptDays))
+            earlier = days.isEmpty ? nil : days.filter { kept.contains($0.key) }
+        }
+        count += uses
     }
 
     static func day(of date: Date, calendar: Calendar) -> String {

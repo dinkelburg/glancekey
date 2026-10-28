@@ -158,9 +158,13 @@ private struct ComputerRow: View {
             } else {
                 switch computer.state {
                 case .locked:
-                    Link(destination: LiveCardLink.unlock(computer: computer.id).url(key: key)) { CapsuleLabel("Unlock", prominent: true) }
+                    Link(destination: LiveCardLink.unlock(computer: computer.id, shown: LiveCardLink.shown(computer.name)).url(key: key)) {
+                        CapsuleLabel("Unlock", prominent: true)
+                    }
                 case .unlocked:
-                    Link(destination: LiveCardLink.lock(computer: computer.id).url(key: key)) { CapsuleLabel("Lock", prominent: false) }
+                    Link(destination: LiveCardLink.lock(computer: computer.id, shown: LiveCardLink.shown(computer.name)).url(key: key)) {
+                        CapsuleLabel("Lock", prominent: false)
+                    }
                 case .offline, .unknown:
                     EmptyView()
                 }
@@ -193,6 +197,15 @@ private struct RequestRow: View {
     let busy: Busy?
 
     var body: some View {
+        // Approve only works right away when the whole command fits on the card. When it's cut off, the link says
+        // nothing was shown, so the app opens the request and waits for a tap on Approve there.
+        ViewThatFits(in: .horizontal) {
+            row(fitsInFull: true)
+            row(fitsInFull: false)
+        }
+    }
+
+    private func row(fitsInFull: Bool) -> some View {
         HStack(spacing: 8) {
             // Tapping the request itself opens it in the app.
             Link(destination: LiveCardLink.open(request: request.id).url(key: key)) {
@@ -200,12 +213,16 @@ private struct RequestRow: View {
                     Text(request.title)
                         .font(.system(.footnote, design: .monospaced).weight(.semibold))
                         .lineLimit(1)
+                        .fixedSize(horizontal: fitsInFull, vertical: false)
                     HStack(spacing: 4) {
                         Text(computerName)
+                            .fixedSize(horizontal: fitsInFull, vertical: false)
                         if request.expiresAt > .now && ApprovalWait.showsCountdown(until: request.expiresAt) {
                             Text("·")
+                            // A timer asks for more room than it shows, which would make every request look cut off.
                             Text(timerInterval: Date.now...request.expiresAt, countsDown: true)
                                 .monospacedDigit()
+                                .frame(maxWidth: 52, alignment: .leading)
                         }
                     }
                     .font(.caption2)
@@ -218,7 +235,8 @@ private struct RequestRow: View {
                 BusyLabel(busy: busy)
             } else {
                 // Deny is in the app, a tap on the request away; the card keeps the room for the command.
-                Link(destination: LiveCardLink.approve(computer: request.computer, request: request.id).url(key: key)) {
+                let shown = fitsInFull ? LiveCardLink.shown(request.title, computerName) : nil
+                Link(destination: LiveCardLink.approve(computer: request.computer, request: request.id, shown: shown).url(key: key)) {
                     CapsuleLabel("Approve", prominent: true)
                 }
             }

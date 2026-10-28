@@ -310,6 +310,19 @@ struct ProtocolTests {
         #expect(!CardId.isValid(String(id.dropLast()) + "/"))
     }
 
+    // linux/protocol_test.go pins the same.
+    @Test func keyFingerprint() {
+        #expect(PairedDevice.keyFingerprint(Data("test".utf8)) == "9F86-D081-884C")
+    }
+
+    @Test func notifyJSON() throws {
+        let data = try JSONEncoder().encode(RelayNotification(machineName: "Mac", pushTokens: ["t"], expiresIn: 900))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: [String: Any]])
+        #expect(object["notify"]?["machineName"] as? String == "Mac")
+        #expect(object["notify"]?["pushTokens"] as? [String] == ["t"])
+        #expect(object["notify"]?["expiresIn"] as? Int == 900)
+    }
+
     @Test func pushTokens() {
         let token = String(repeating: "0123456789abcdef", count: 4)
         #expect(PushToken.isValid(token))
@@ -341,7 +354,27 @@ struct FreeTierTests {
         #expect(use.count(on: evening, calendar: calendar) == 3)
         #expect(use.count(on: night, calendar: calendar) == 0)
         use.add(1, on: night, calendar: calendar)
-        #expect(use == DailyUse(day: "2026-10-29", count: 1))
+        #expect(use == DailyUse(day: "2026-10-29", count: 1, earlier: ["2026-10-28": 3]))
+    }
+
+    // Moving the clock to another day and back doesn't give a new day's worth.
+    @Test func dailyUseRemembersEarlierDays() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Europe/Amsterdam"))
+        let today = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 28, hour: 12)))
+        let tomorrow = today.addingTimeInterval(24 * 3600)
+        var use = DailyUse()
+        use.add(15, on: today, calendar: calendar)
+        use.add(15, on: tomorrow, calendar: calendar)
+        #expect(use.count(on: today, calendar: calendar) == 15)
+        use.add(1, on: today, calendar: calendar)
+        #expect(use.count(on: today, calendar: calendar) == 16)
+        #expect(use.count(on: tomorrow, calendar: calendar) == 15)
+        // Only the last week is kept, and a count saved by an older version still reads.
+        for day in 1...10 { use.add(1, on: today.addingTimeInterval(Double(day) * 24 * 3600), calendar: calendar) }
+        #expect((use.earlier?.count ?? 0) == DailyUse.keptDays)
+        let old = try JSONDecoder().decode(DailyUse.self, from: Data(#"{"day":"2026-10-28","count":4}"#.utf8))
+        #expect(old.count(on: today, calendar: calendar) == 4)
     }
 }
 

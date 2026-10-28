@@ -54,6 +54,15 @@ enum DeviceKey {
         }
     }
 
+    /// The signing key's X9.63 public key. Needs no Face ID: only signing does.
+    static func publicKey(tag: String) throws -> Data {
+        let stored = try load(tag: tag)
+        if usesSecureEnclave {
+            return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: stored).publicKey.x963Representation
+        }
+        return try P256.Signing.PrivateKey(rawRepresentation: stored).publicKey.x963Representation
+    }
+
     /// `context` must already have passed Face ID. The Secure Enclave enforces that on its own too.
     static func sign(_ message: Data, tag: String, context: LAContext) throws -> Data {
         let stored = try load(tag: tag)
