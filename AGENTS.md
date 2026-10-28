@@ -30,7 +30,7 @@ On the Mac, the iPhones that may unlock, fill dialogs or become sudo approvers a
 - iPhone: `scripts/install-iphone.sh` (cable or paired device; Ruben's paid Developer Program team U78YQGE72M, so an install keeps opening for a year)
 - TestFlight and App Store: `scripts/upload-testflight.sh` archives the iPhone app and uploads it to App Store Connect (app GlanceKey, Apple ID 6827081602). The build number is the date and time.
 - Linux binaries: `scripts/build-linux.sh` → `build/linux/`
-- Mac and Linux release: raise `MARKETING_VERSION` in project.yml, then `scripts/release.sh`: notarizes the Mac app (Developer ID), publishes it and the Linux program on download.glancekey.com and updates the public Homebrew tap github.com/dinkelburg/homebrew-glancekey. Downloads stay until the next release replaces them.
+- Mac and Linux release: raise `MARKETING_VERSION` in project.yml (the iPhone app's version is `IPHONE_VERSION`), then `scripts/release.sh`: notarizes the Mac app (Developer ID), publishes it and the Linux program on download.glancekey.com and updates the public Homebrew tap github.com/dinkelburg/homebrew-glancekey. Downloads stay until the next release replaces them.
 - Relay: `cd relay && npx wrangler deploy`. A deploy briefly drops every agent connection; they reconnect within seconds.
 - Website: `cd site && npm install && npx wrangler dev` (http://localhost:8788) to preview, `npm run deploy` to publish.
 - End to end without devices: run the Go agent on the Mac (fake screen) and pair `fake-phone` with it; see README "Development" (also covers approvals and the Mac PAM module via `pam-check --direct`, no root needed).

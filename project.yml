@@ -14,7 +14,10 @@ settings:
     DEVELOPMENT_TEAM: U78YQGE72M
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.0"
+    # The Mac app's and the Linux program's version (scripts/release.sh). The iPhone app has its own, IPHONE_VERSION,
+    # since App Store versions go their own way.
+    MARKETING_VERSION: "1.0.1"
+    IPHONE_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
 # In the project for Xcode's StoreKit testing, not in the app.
 fileGroups:
@@ -94,7 +97,7 @@ targets:
       path: iOS/Info.plist
       properties:
         CFBundleDisplayName: $(APP_NAME)
-        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleShortVersionString: $(IPHONE_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSFaceIDUsageDescription: $(APP_NAME) uses Face ID to approve unlocking your computers.
         # Only encryption built into iOS (HTTPS, and CryptoKit for the signing keys and the sealed password's key),
@@ -146,7 +149,7 @@ targets:
       path: iOSWidgets/Info.plist
       properties:
         CFBundleDisplayName: $(APP_NAME)
-        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleShortVersionString: $(IPHONE_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
