@@ -47,7 +47,7 @@ On the Mac, the iPhones that may unlock, fill dialogs or become sudo approvers a
 
 ## Status (2026-10-28)
 
-- The subscription (GlanceKey Unlimited, 2026-10-28) goes out with the iPhone app's first App Store version. Built and tested with the StoreKit file only so far; App Store Connect still needs its products, and the relay its `/v1/limits` deploy (until then the app uses 2 and 15).
+- The subscription (GlanceKey Unlimited, 2026-10-28) goes out with the iPhone app's first App Store version. Its two products are in App Store Connect, in the 1.0 draft submission together with the app; the relay serves `/v1/limits`. Tested in the simulator with the StoreKit file, not yet with a sandbox purchase in TestFlight.
 - Called FaceUnlock until 2026-10-25. The `faceunlock…/v1` protocol prefixes and the Go module path still use that name.
 - 1.0 of the Mac app and the Linux program is on download.glancekey.com and in the Homebrew tap. The iPhone app is in TestFlight, waiting for its first App Store submission.
 - Tested on real devices: iPhone → relay → Mac unlock, Mac sudo approval, a Mac password dialog, and a Mac `sudo` notification on a locked iPhone. The Linux agent is tested with the fake screen and Linux PAM in Docker only; Ruben tests on Omarchy himself.
